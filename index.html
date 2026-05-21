@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Moxie · Enterprise Onboarding</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --plum:#4F0751; --lilac:#EBD7F5; --blush:#FBF5FF; --sage:#C2D6D3;
+    --forest:#1A2D2B; --rose:#DCACAC; --gold:#AC8342;
+    --bg:#F4EEF8;
+    --surface:#FFFFFF;
+    --s2:#F9F4FC;
+    --border:rgba(79,7,81,0.10);
+    --text:#2a1630;
+    --muted:#7a6b80;
+    --ok:#2e8a6a; --warn:#8c6520; --danger:#b85555;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;min-height:100vh;}
+  body::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");pointer-events:none;z-index:0;}
+  .app{position:relative;z-index:1;}
+
+  header{display:flex;align-items:center;justify-content:space-between;padding:16px 32px;border-bottom:1px solid var(--border);background:rgba(244,238,248,0.94);backdrop-filter:blur(16px);position:sticky;top:0;z-index:100;}
+  .logo{display:flex;align-items:center;gap:12px;}
+  .logo-m{width:34px;height:34px;background:var(--plum);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-style:italic;font-size:18px;color:var(--blush);font-weight:700;}
+  .logo-text{font-family:'Playfair Display',serif;font-size:16px;font-weight:700;color:var(--text);}
+  .logo-text span{font-weight:400;font-style:italic;color:var(--muted);font-size:13px;margin-left:6px;}
+  .hdr-right{display:flex;align-items:center;gap:12px;}
+  .seg-badge{background:var(--plum);border:1px solid transparent;color:#FBF5FF;padding:4px 12px;border-radius:20px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;}
+  .live-dot{width:6px;height:6px;border-radius:50%;background:var(--ok);animation:blink 2.5s infinite;}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+  .sync-lbl{font-size:11px;color:var(--muted);}
+  .refresh-btn{background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:20px;font-family:'DM Sans',sans-serif;font-size:11px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:6px;}
+  .refresh-btn:hover{border-color:var(--plum);color:var(--plum);}
+  .refresh-btn:disabled{opacity:.5;cursor:default;}
+  .spin-icon{display:inline-block;}
+  .spin-icon.spinning{animation:sp .7s linear infinite;}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  .static-banner{background:linear-gradient(90deg,rgba(172,131,66,.08),rgba(79,7,81,.05));border-bottom:1px solid rgba(172,131,66,.2);padding:8px 32px;font-size:11px;color:var(--gold);text-align:center;font-style:italic;}
+
+  .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:22px 32px;}
+  .sc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;position:relative;overflow:hidden;box-shadow:0 1px 4px rgba(79,7,81,0.06);}
+  .sc::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+  .sc.a::after{background:var(--plum)} .sc.b::after{background:var(--gold)} .sc.c::after{background:var(--ok)} .sc.d::after{background:var(--rose)}
+  .sc-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.4px;font-weight:500;margin-bottom:8px;}
+  .sc-val{font-family:'Playfair Display',serif;font-size:26px;font-weight:700;line-height:1;}
+  .sc-sub{font-size:10px;color:var(--muted);margin-top:5px;}
+
+  .toolbar{display:flex;align-items:center;gap:10px;padding:12px 32px;border-bottom:1px solid var(--border);background:rgba(244,238,248,0.7);}
+  .srch{flex:1;max-width:240px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:11px;outline:none;}
+  .srch::placeholder{color:var(--muted);}
+  .srt-sel{background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:6px 10px;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:11px;cursor:pointer;outline:none;}
+  .flt-grp{display:flex;gap:0;}
+  .fb{background:none;border:1px solid var(--border);color:var(--muted);padding:5px 12px;font-family:'DM Sans',sans-serif;font-size:11px;cursor:pointer;transition:all .15s;white-space:nowrap;}
+  .fb:first-child{border-radius:4px 0 0 4px;} .fb:last-child{border-radius:0 4px 4px 0;} .fb:not(:first-child){border-left:none;}
+  .fb.on{background:var(--plum);color:#FBF5FF;border-color:var(--plum);}
+  .tcount{font-size:11px;color:var(--muted);margin-left:auto;}
+
+  .loading-overlay{position:fixed;inset:0;background:rgba(244,238,248,0.8);backdrop-filter:blur(4px);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;}
+  .loading-overlay.hidden{display:none;}
+  .loading-spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--plum);border-radius:50%;animation:sp .8s linear infinite;}
+  .loading-text{font-family:'Playfair Display',serif;font-size:14px;color:var(--muted);font-style:italic;}
+  .loading-sub{font-size:11px;color:var(--muted);}
+
+  .rows-wrap{padding:0 32px 40px;}
+  .row-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-bottom:10px;overflow:hidden;transition:border-color .2s,box-shadow .2s;animation:ri .3s ease forwards;opacity:0;box-shadow:0 1px 4px rgba(79,7,81,0.06);}
+  .row-card:hover{border-color:rgba(79,7,81,0.25);box-shadow:0 3px 12px rgba(79,7,81,0.1);}
+  @keyframes ri{to{opacity:1}}
+
+  .row-main{display:grid;grid-template-columns:2fr 120px 100px 140px 120px 130px 140px 28px;align-items:center;gap:0;cursor:pointer;}
+  .cell{padding:13px 16px;border-right:1px solid var(--border);}
+  .cell:last-child{border-right:none;padding:13px 12px;}
+
+  .rev-val{font-family:'Playfair Display',serif;font-size:15px;font-weight:700;color:var(--ok);}
+  .rev-lbl{font-size:9px;color:var(--muted);margin-top:1px;}
+  .rev-none{font-size:11px;color:rgba(79,7,81,0.2);font-style:italic;}
+
+  .pco{display:flex;align-items:center;gap:11px;}
+  .av{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-weight:700;font-size:13px;flex-shrink:0;}
+  .pname{font-weight:600;font-size:13px;line-height:1.3;color:var(--text);}
+  .pnum{font-size:10px;color:var(--muted);}
+
+  .days-wrap{display:flex;align-items:baseline;gap:3px;}
+  .days-n{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;}
+  .days-lbl{font-size:10px;color:var(--muted);}
+  .dn{color:var(--ok)} .dm{color:var(--warn)} .dl{color:var(--danger)}
+
+  .l-ok{color:var(--ok)} .l-warn{color:var(--warn)} .l-over{color:var(--danger)}
+
+  .chip{padding:3px 9px;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap;}
+  .c-ok{background:rgba(46,138,106,.1);color:var(--ok);border:1px solid rgba(46,138,106,.25);}
+  .c-warn{background:rgba(140,101,32,.1);color:var(--warn);border:1px solid rgba(140,101,32,.25);}
+
+  .pg-wrap{display:flex;align-items:center;gap:8px;}
+  .pg-bar{flex:1;height:3px;background:rgba(79,7,81,0.1);border-radius:2px;overflow:hidden;}
+  .pg-fill{height:100%;border-radius:2px;}
+  .pg-pct{font-size:10px;color:var(--muted);min-width:24px;}
+
+  .mgr{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text);}
+  .md{width:7px;height:7px;border-radius:50%;}
+
+  .chev{color:var(--muted);font-size:10px;transition:transform .2s;}
+  .row-card.open .chev{transform:rotate(180deg);}
+
+  .row-detail{display:none;border-top:1px solid var(--border);}
+  .row-card.open .row-detail{display:grid;grid-template-columns:1fr 1fr;gap:0;}
+
+  .detail-info{padding:16px 20px;border-right:1px solid var(--border);background:var(--s2);}
+  .di-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;}
+  .di-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;}
+  .di-val{font-size:12px;font-weight:500;color:var(--text);}
+
+  .tl-wrap{margin-top:14px;padding:10px 12px;background:rgba(79,7,81,0.05);border:1px solid var(--border);border-radius:8px;}
+  .tl-hdr{display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-bottom:5px;}
+  .tl-track{height:5px;background:rgba(79,7,81,0.1);border-radius:3px;position:relative;overflow:hidden;}
+  .tl-fill{height:100%;background:linear-gradient(90deg,var(--plum),var(--lilac));border-radius:3px;}
+
+  .notes-panel{padding:16px 20px;background:var(--s2);}
+  .notes-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .notes-title{font-family:'Playfair Display',serif;font-size:12px;font-weight:700;font-style:italic;color:var(--text);}
+  .slack-pill{font-size:9px;background:var(--plum);color:#FBF5FF;border:1px solid transparent;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:1px;font-weight:600;}
+  .note{padding:10px 12px;background:var(--surface);border-radius:8px;margin-bottom:8px;border:1px solid var(--border);}
+  .note:last-child{margin-bottom:0;}
+  .note-meta{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;}
+  .nb{font-size:9px;padding:2px 6px;border-radius:3px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+  .nb-risk{background:rgba(184,85,85,.12);color:var(--danger);}
+  .nb-update{background:rgba(46,138,106,.1);color:var(--ok);}
+  .nb-blocker{background:rgba(140,101,32,.12);color:var(--warn);}
+  .note-date{font-size:9px;color:var(--muted);}
+  .note-text{font-size:11px;line-height:1.6;color:var(--text);}
+  .no-notes{font-size:11px;color:var(--muted);font-style:italic;padding:8px 0;}
+  .hs-link{color:var(--plum);font-size:10px;text-decoration:none;opacity:.75;}
+  .hs-link:hover{opacity:1;}
+  .empty-msg{color:var(--muted);font-size:12px;padding:40px;text-align:center;}
+
+  .new-badge{font-size:9px;background:rgba(46,138,106,.15);color:var(--ok);border:1px solid rgba(46,138,106,.3);padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px;vertical-align:middle;}
+
+  /* ── Channel Management panel ─────────────────────────── */
+  .ch-panel{margin:0 32px 18px;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 1px 4px rgba(79,7,81,0.06);overflow:hidden;}
+  .ch-head{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;cursor:pointer;border-bottom:1px solid transparent;}
+  .ch-panel.open .ch-head{border-bottom-color:var(--border);}
+  .ch-title{font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:var(--text);display:flex;align-items:center;gap:10px;}
+  .ch-counts{display:flex;gap:10px;align-items:center;}
+  .ch-pill{font-size:10px;font-weight:600;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px;}
+  .ch-pill.ok{background:rgba(46,138,106,.12);color:var(--ok);border:1px solid rgba(46,138,106,.25);}
+  .ch-pill.miss{background:rgba(184,85,85,.12);color:var(--danger);border:1px solid rgba(184,85,85,.25);}
+  .ch-chev{color:var(--muted);font-size:11px;transition:transform .2s;}
+  .ch-panel.open .ch-chev{transform:rotate(180deg);}
+  .ch-body{display:none;padding:0;}
+  .ch-panel.open .ch-body{display:block;}
+  .ch-tbl{width:100%;border-collapse:collapse;font-size:12px;}
+  .ch-tbl th{background:var(--s2);text-align:left;padding:9px 14px;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:600;border-bottom:1px solid var(--border);}
+  .ch-tbl td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  .ch-tbl tr:last-child td{border-bottom:none;}
+  .ch-tbl tr:hover{background:var(--s2);}
+  .ch-mgr{display:flex;align-items:center;gap:6px;font-size:12px;}
+  .ch-mgr-dot{width:7px;height:7px;border-radius:50%;background:var(--plum);flex-shrink:0;}
+  .ch-mgr-none{color:var(--muted);font-style:italic;font-size:11px;}
+  .ch-link{color:var(--plum);font-weight:600;text-decoration:none;font-family:monospace;font-size:11px;}
+  .ch-link:hover{text-decoration:underline;}
+  .ch-btn{background:var(--plum);color:#FBF5FF;border:none;padding:5px 12px;border-radius:5px;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;transition:background .15s;}
+  .ch-btn:hover{background:#3a0540;}
+  .ch-btn.ghost{background:var(--surface);color:var(--plum);border:1px solid var(--plum);}
+  .ch-btn.ghost:hover{background:var(--lilac);}
+  .ch-btn:disabled{opacity:.5;cursor:default;}
+
+  /* Channel modal */
+  .modal-bg{position:fixed;inset:0;background:rgba(26,22,48,0.5);backdrop-filter:blur(4px);z-index:300;display:flex;align-items:center;justify-content:center;}
+  .modal-bg.hidden{display:none;}
+  .modal{background:var(--surface);border-radius:14px;padding:24px;width:480px;max-width:90vw;box-shadow:0 10px 40px rgba(0,0,0,0.25);}
+  .modal h3{font-family:'Playfair Display',serif;font-size:18px;margin-bottom:6px;color:var(--text);}
+  .modal-sub{font-size:12px;color:var(--muted);margin-bottom:18px;}
+  .modal-tabs{display:flex;gap:0;margin-bottom:18px;border-bottom:1px solid var(--border);}
+  .modal-tab{flex:1;padding:10px;background:none;border:none;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;}
+  .modal-tab.on{color:var(--plum);border-bottom-color:var(--plum);font-weight:600;}
+  .modal label{display:block;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;font-weight:600;}
+  .modal input,.modal select{width:100%;background:var(--bg);border:1px solid var(--border);padding:9px 12px;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text);outline:none;margin-bottom:14px;}
+  .modal input:focus,.modal select:focus{border-color:var(--plum);}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px;}
+  .modal-err{color:var(--danger);font-size:11px;margin-top:6px;min-height:14px;}
+
+  /* ── Lifecycle Tabs ──────────────────────────────────── */
+  .lc-tabs{display:flex;gap:0;padding:18px 32px 0;border-bottom:1px solid var(--border);background:rgba(244,238,248,0.6);}
+  .lc-tab{background:none;border:none;border-bottom:3px solid transparent;padding:10px 22px;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--muted);font-weight:500;transition:all .15s;display:flex;align-items:center;gap:8px;}
+  .lc-tab:hover{color:var(--plum);}
+  .lc-tab.on{color:var(--plum);border-bottom-color:var(--plum);font-weight:700;}
+  .lc-count{background:var(--lilac);color:var(--plum);padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;}
+  .lc-tab.on .lc-count{background:var(--plum);color:#FBF5FF;}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- Loading overlay -->
+<div class="loading-overlay hidden" id="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text" id="loading-text">Syncing with HubSpot</div>
+  <div class="loading-sub" id="loading-sub">Pulling enterprise accounts…</div>
+</div>
+
+<header>
+  <div class="logo">
+    <div class="logo-m">M</div>
+    <div class="logo-text">Moxie<span>/ Enterprise Onboarding</span></div>
+  </div>
+  <div class="hdr-right">
+    <div class="seg-badge">Enterprise · Onboarding</div>
+    <div class="live-dot"></div>
+    <span class="sync-lbl" id="sync-lbl">Loading…</span>
+    <button class="refresh-btn" id="refresh-btn" onclick="loadAll()">
+      <span class="spin-icon" id="refresh-icon">↻</span> Refresh
+    </button>
+  </div>
+</header>
+
+<div class="static-banner" id="static-banner">
+  Static deploy · Live HubSpot + Slack sync coming in Phase 2 — see /api/refresh route
+</div>
+
+<!-- ── Lifecycle tabs (filters everything below) ───────────── -->
+<div class="lc-tabs">
+  <button class="lc-tab"    data-lc="pre-launch"          onclick="lcSwitch(this)">Pre-launch <span class="lc-count" id="lc-cnt-pre-launch">0</span></button>
+  <button class="lc-tab on" data-lc="onboarding"          onclick="lcSwitch(this)">Onboarding <span class="lc-count" id="lc-cnt-onboarding">0</span></button>
+  <button class="lc-tab"    data-lc="post-launch customer" onclick="lcSwitch(this)">Post-launch <span class="lc-count" id="lc-cnt-post-launch customer">0</span></button>
+</div>
+
+<div class="summary">
+  <div class="sc a"><div class="sc-lbl">Active Enterprises</div><div class="sc-val" id="s-total" style="color:var(--plum)">—</div><div class="sc-sub">in onboarding</div></div>
+  <div class="sc b"><div class="sc-lbl">Avg Days In</div><div class="sc-val" id="s-avg" style="color:var(--gold)">—</div><div class="sc-sub">since kickoff call</div></div>
+  <div class="sc c"><div class="sc-lbl">Launching ≤ 30 Days</div><div class="sc-val" id="s-soon" style="color:var(--ok)">—</div><div class="sc-sub">practices</div></div>
+  <div class="sc d"><div class="sc-lbl">Delayed</div><div class="sc-val" id="s-del" style="color:var(--danger)">—</div><div class="sc-sub">onboarding status</div></div>
+</div>
+
+<div class="toolbar">
+  <input class="srch" id="srch" placeholder="Search practice…" oninput="render()">
+  <div class="flt-grp">
+    <button class="fb on" onclick="filt('all',this)">All</button>
+    <button class="fb" onclick="filt('delayed',this)">⚠ Delayed</button>
+    <button class="fb" onclick="filt('notes',this)">💬 Has Notes</button>
+    <button class="fb" onclick="filt('soon',this)">🚀 Launching Soon</button>
+  </div>
+  <select class="srt-sel" id="srt" onchange="render()">
+    <option value="days_d">Days In ↓</option>
+    <option value="days_a">Days In ↑</option>
+    <option value="launch_a">Launch Date ↑</option>
+    <option value="rev_d">Revenue ↓</option>
+    <option value="name_a">Name A–Z</option>
+    <option value="mgr">Manager</option>
+  </select>
+  <span class="tcount" id="tcount">—</span>
+</div>
+
+<!-- ── Channel Management Panel ──────────────────────────── -->
+<div class="ch-panel" id="ch-panel">
+  <div class="ch-head" onclick="document.getElementById('ch-panel').classList.toggle('open')">
+    <div class="ch-title">
+      💬 Channel Management
+      <span style="font-weight:400;font-style:italic;color:var(--muted);font-size:12px;">— Slack channel per Enterprise account</span>
+    </div>
+    <div class="ch-counts">
+      <span class="ch-pill ok" id="ch-pill-ok">— linked</span>
+      <span class="ch-pill miss" id="ch-pill-miss">— missing</span>
+      <span class="ch-chev">▼</span>
+    </div>
+  </div>
+  <div class="ch-body">
+    <table class="ch-tbl">
+      <thead>
+        <tr>
+          <th style="width:30%">Practice</th>
+          <th style="width:20%">Onboarding Manager</th>
+          <th style="width:20%">Practice Success Manager</th>
+          <th style="width:20%">Slack Channel</th>
+          <th style="width:10%">Action</th>
+        </tr>
+      </thead>
+      <tbody id="ch-rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Weekly Digest Recipients Panel ─────────────────────── -->
+<div class="ch-panel" id="rcp-panel">
+  <div class="ch-head" onclick="document.getElementById('rcp-panel').classList.toggle('open')">
+    <div class="ch-title">
+      📧 Weekly Digest Recipients
+      <span style="font-weight:400;font-style:italic;color:var(--muted);font-size:12px;">— who gets the Monday blocker/risk summary</span>
+    </div>
+    <div class="ch-counts">
+      <span class="ch-pill ok" id="rcp-pill-active">— active</span>
+      <span class="ch-pill" style="background:rgba(122,107,128,.12);color:var(--muted);border:1px solid var(--border);" id="rcp-pill-paused">— paused</span>
+      <span class="ch-chev">▼</span>
+    </div>
+  </div>
+  <div class="ch-body">
+    <table class="ch-tbl">
+      <thead>
+        <tr>
+          <th style="width:25%">Name</th>
+          <th style="width:30%">Email</th>
+          <th style="width:20%">Role</th>
+          <th style="width:10%">Status</th>
+          <th style="width:15%">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="rcp-rows">
+        <tr><td colspan="5" style="text-align:center;color:var(--muted);font-style:italic;">Loading…</td></tr>
+      </tbody>
+    </table>
+    <div style="padding:14px 20px;border-top:1px solid var(--border);background:var(--s2);display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+      <div style="flex:1;min-width:140px;">
+        <label style="display:block;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;font-weight:600;">Name</label>
+        <input type="text" id="rcp-new-name" placeholder="e.g. Jennifer Denton" style="width:100%;background:var(--surface);border:1px solid var(--border);padding:7px 10px;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text);outline:none;">
+      </div>
+      <div style="flex:1.4;min-width:200px;">
+        <label style="display:block;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;font-weight:600;">Email</label>
+        <input type="email" id="rcp-new-email" placeholder="name@joinmoxie.com" style="width:100%;background:var(--surface);border:1px solid var(--border);padding:7px 10px;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text);outline:none;">
+      </div>
+      <div style="flex:1;min-width:140px;">
+        <label style="display:block;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;font-weight:600;">Role (optional)</label>
+        <input type="text" id="rcp-new-role" placeholder="e.g. CFO, OM, Exec" style="width:100%;background:var(--surface);border:1px solid var(--border);padding:7px 10px;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text);outline:none;">
+      </div>
+      <button class="ch-btn" onclick="rcpAdd()" id="rcp-add-btn">＋ Add recipient</button>
+      <button class="ch-btn ghost" onclick="rcpSendTest()" id="rcp-send-btn" title="Send the digest now to all active recipients">📨 Send digest now</button>
+    </div>
+    <div id="rcp-err" style="color:var(--danger);font-size:11px;padding:0 20px 12px;min-height:0;"></div>
+  </div>
+</div>
+
+<!-- ── Channel assign / create modal ──────────────────────── -->
+<div class="modal-bg hidden" id="ch-modal">
+  <div class="modal">
+    <h3 id="ch-modal-title">Set up Slack channel</h3>
+    <div class="modal-sub" id="ch-modal-sub">—</div>
+    <div class="modal-tabs">
+      <button class="modal-tab on" id="ch-tab-create" onclick="chSwitchTab('create')">➕ Create new</button>
+      <button class="modal-tab" id="ch-tab-assign" onclick="chSwitchTab('assign')">🔗 Link existing</button>
+    </div>
+
+    <div id="ch-pane-create">
+      <label>Channel name</label>
+      <input type="text" id="ch-new-name" placeholder="e.g. rivkin-westside" />
+      <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text);font-weight:400;">
+        <input type="checkbox" id="ch-new-private" style="width:auto;margin:0" /> Private channel
+      </label>
+      <div style="font-size:11px;color:var(--muted);margin:6px 0 14px;">
+        Bot is auto-added on creation. Private channels need a human to invite teammates afterwards.
+      </div>
+    </div>
+
+    <div id="ch-pane-assign" style="display:none">
+      <label>Existing channel (only channels the bot is already in are listed)</label>
+      <select id="ch-assign-id"></select>
+      <div style="font-size:11px;color:var(--muted);margin:-6px 0 14px;">
+        Don't see it? `/invite @Moxie Onboarding Reader` in the channel first, then refresh this page.
+      </div>
+    </div>
+
+    <div class="modal-err" id="ch-modal-err"></div>
+    <div class="modal-actions">
+      <button class="ch-btn ghost" onclick="chCloseModal()">Cancel</button>
+      <button class="ch-btn" id="ch-modal-go" onclick="chSubmitModal()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="rows-wrap" id="rows-wrap"></div>
+</div>
+
+<script>
+// ── Owner map (stable — HubSpot owner IDs don't change) ──
+const OWNERS = {
+  "742416394":  {name:"Sarah Bremer",  col:"#9b59b6"},
+  "381256294":  {name:"Ali Gludt",     col:"#5eb89e"},
+  "75919105":   {name:"Rachel Ulreich",col:"#AC8342"},
+  "1619212666": {name:"MJ Chevalier",  col:"#DCACAC"},
+  "80103033":   {name:"Madison Plumb", col:"#C2D6D3"},
+};
+const PAL=["#4F0751","#AC8342","#5eb89e","#DCACAC","#C2D6D3","#EBD7F5","#6A450C"];
+
+// ── Slack notes (Phase 1: hardcoded · Phase 2: served from /api/refresh) ──
+// Last synced: Apr 29, 2026
+const SLACK_NOTES = {
+  "rivkin": [
+    {type:"blocker",date:"Apr 29", text:"Nextech 6-8 week data delivery timeline has NOT started. Moxie escalated to Nextech's General Counsel threatening OIG complaint. Litigation risk flagged — may damage future Nextech migrations. Hart Pilot being explored as parallel path."},
+    {type:"risk",   date:"Apr 24", text:"Legal route stalled. Contract sent to legal team. Pausing Hart Pilot. Current target launch June 15 (will change). Migration blocked since Nov 2025."},
+    {type:"risk",   date:"Apr 22", text:"Prior NexTech migration precedent: 6-8 wks for response + 6-8 wks to receive data, arrived messy — 'a nightmare.' Team planning for worst case."},
+  ],
+  "haven": [
+    {type:"update", date:"Apr 29", text:"GMB ownership fully transferred. MAAP call being coordinated with Reyna (client prefers Mon/Fri)."},
+    {type:"update", date:"Apr 27", text:"Site visit complete. Leadsie, GHL & Local SEO forms done. Domain purchased, website template duplicated. PC/EIN/bank account still pending Dr. Sykes' attorney — needed before Moxie Suite setup."},
+    {type:"risk",   date:"Apr 24", text:"Migration likely requires Hart to extract Portrait data, which will delay June 1 launch. Timeline TBD."},
+    {type:"blocker",date:"Apr 17", text:"Service menu and Acuity access not yet provided. PC/EIN paperwork still with attorney. No Brand Book assets — logo form not filled out."},
+  ],
+  "chinitas": [
+    {type:"blocker",date:"Apr 29", text:"Client pushing back: Miami Lakes location needs 2 separate entities (MBS + Chinitas) — requires 2 Moxie Suite accounts and booking links. Accountant mandated this structure. Client contemplating whether to continue."},
+    {type:"risk",   date:"Apr 28", text:"Client re-evaluating due to dual-entity Moxie Suite requirement. Two separate schedules/booking links for one location is a major UX concern. Next meeting May 4."},
+    {type:"risk",   date:"Apr 7",  text:"Compliance expectations gap: client expected ongoing legal/compliance support Moxie cannot provide. Unlimited SMS contract language also questioned."},
+  ],
+  "face & body": [
+    {type:"risk",   date:"Apr 29", text:"Provider under active legal review — reportedly performed injectables as a non-licensed professional. Has attorney. Onboarding restarted but legal situation ongoing."},
+    {type:"blocker",date:"Apr 16", text:"Medical Director refused to sign Moxie contract requiring wellness exams — not required in Idaho for her role. Resolved after clarifying non-MSO structure."},
+    {type:"update", date:"Apr 29", text:"Back on track. Migration call scheduled next week. BLVD termination June 1. A2P kicked off."},
+  ],
+  "face alchemy": [
+    {type:"risk",   date:"Apr 29", text:"FDS (Front Desk Support) promised in sales but Enterprise accounts don't typically receive FDS. Needs resolution before May 4 call."},
+    {type:"update", date:"Apr 29", text:"Kickoff complete. Target June 15. Deciding on Moxie MD vs existing (PC/MSO required if switching). Marketing forms due EOW."},
+  ],
+  "style aesthetics": [
+    {type:"risk",   date:"Apr 27", text:"Client frustrated — expected one phone number in Moxie Suite but will end up with 3 separate numbers. Ali escalating internally."},
+    {type:"update", date:"Apr 24", text:"Migration kickoff done. No red flags. Photo migration extra time (client aware). Client wants early June vs HubSpot target of July 14."},
+    {type:"update", date:"Apr 21", text:"Strong kickoff. Does $150k–$200k+/mo. Main need: culture/team building — inherited team doesn't like new owners. KPI dashboards per employee a key sales promise."},
+  ],
+  "re-glo": [
+    {type:"risk",   date:"Apr 24", text:"Migration from Portrait — data export limitations flagged. Awaiting service menu. MD transition in progress: current MD is Portrait's CMO and needs replacement."},
+    {type:"update", date:"Apr 21", text:"Smooth kickoff. Attorney amending S-Corp for MSO. Outside marketing person hired. MD Matching form submitted."},
+  ],
+  "aw medspa": [
+    {type:"risk",   date:"Apr 29", text:"Dual PatientNow migration required — PatientNow Pro (pre-Apr 2025) AND Essentials (post-Apr 2025). HubSpot shows July but BLVD contract terminates June 1. Timeline conflict."},
+    {type:"risk",   date:"Apr 27", text:"Client may be trying to exit PatientNow contract early. PM not yet assigned despite product questions."},
+    {type:"update", date:"Apr 24", text:"Migration call complete. No major red flags on PatientNow export. One more OM meeting then handoff."},
+  ],
+  "icon anti-aging & aesthetics - 2096": [
+    {type:"update", date:"Apr 22", text:"Onboarding progressing. Rochester location (2123) added as 2nd enterprise account for same operator."},
+  ],
+  "icon anti-aging & aesthetics rochester": [
+    {type:"update", date:"Apr 28", text:"New enterprise account, recently kicked off. Same operator as Icon Anti-Aging main location (2096). No issues flagged yet."},
+  ],
+};
+
+// Live notes (populated by /api/refresh in Phase 2). Falls back to SLACK_NOTES if empty.
+let LIVE_NOTES = null;
+
+function getNotesFor(name) {
+  const lower=(name||"").toLowerCase();
+  const source = LIVE_NOTES || SLACK_NOTES;
+  for(const key of Object.keys(source)){
+    if(lower.includes(key)) return source[key];
+  }
+  return [];
+}
+
+// ── Weekly Digest Recipients ─────────────────────────────
+let RECIPIENTS = [];
+
+async function loadRecipients(){
+  try {
+    const res = await fetch("/api/recipients");
+    if(!res.ok) return;
+    const payload = await res.json();
+    RECIPIENTS = payload.recipients || [];
+    renderRecipients();
+  } catch(e){
+    console.warn("Recipient fetch failed:", e.message);
+  }
+}
+
+function renderRecipients(){
+  const tbody = document.getElementById("rcp-rows");
+  if(!tbody) return;
+
+  if(!RECIPIENTS.length){
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);font-style:italic;padding:18px;">No recipients yet — add one below to start the weekly digest.</td></tr>`;
+    document.getElementById("rcp-pill-active").textContent = "0 active";
+    document.getElementById("rcp-pill-paused").textContent = "0 paused";
+    return;
+  }
+
+  let active=0, paused=0;
+  tbody.innerHTML = RECIPIENTS.map(r => {
+    if (r.active !== false) active++; else paused++;
+    const isActive = r.active !== false;
+    return `
+      <tr>
+        <td>${r.name ? `<strong>${escapeHtml(r.name)}</strong>` : `<span style="color:var(--muted);font-style:italic;">—</span>`}</td>
+        <td><a href="mailto:${escapeHtml(r.email)}" style="color:var(--plum);text-decoration:none;font-family:monospace;font-size:11px;">${escapeHtml(r.email)}</a></td>
+        <td>${r.role ? escapeHtml(r.role) : `<span style="color:var(--muted);font-style:italic;">—</span>`}</td>
+        <td>
+          <span class="ch-pill ${isActive?'ok':''}" style="${isActive?'':'background:rgba(122,107,128,.12);color:var(--muted);border:1px solid var(--border);'}">
+            ${isActive ? '✓ Active' : '⏸ Paused'}
+          </span>
+        </td>
+        <td>
+          <button class="ch-btn ghost" style="font-size:10px;padding:3px 8px;margin-right:4px;" onclick="rcpToggle('${escapeJs(r.id)}', ${!isActive})">${isActive?'Pause':'Activate'}</button>
+          <button class="ch-btn ghost" style="font-size:10px;padding:3px 8px;color:var(--danger);border-color:var(--danger);" onclick="rcpRemove('${escapeJs(r.id)}','${escapeJs(r.email)}')">Remove</button>
+        </td>
+      </tr>`;
+  }).join("");
+
+  document.getElementById("rcp-pill-active").textContent = `${active} active`;
+  document.getElementById("rcp-pill-paused").textContent = `${paused} paused`;
+}
+
+async function rcpAdd(){
+  const err   = document.getElementById("rcp-err");
+  const btn   = document.getElementById("rcp-add-btn");
+  const name  = document.getElementById("rcp-new-name").value.trim();
+  const email = document.getElementById("rcp-new-email").value.trim();
+  const role  = document.getElementById("rcp-new-role").value.trim();
+  err.textContent = "";
+
+  if(!email){ err.textContent = "Email is required."; return; }
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ err.textContent = "That doesn't look like a valid email."; return; }
+
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/recipients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, name: name || null, role: role || null })
+    });
+    const payload = await res.json();
+    if(!res.ok) throw new Error(payload.error || `API ${res.status}`);
+
+    document.getElementById("rcp-new-name").value = "";
+    document.getElementById("rcp-new-email").value = "";
+    document.getElementById("rcp-new-role").value = "";
+    await loadRecipients();
+  } catch(e){
+    err.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function rcpToggle(id, active){
+  try {
+    const res = await fetch(`/api/recipients?id=${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active })
+    });
+    if(!res.ok){
+      const payload = await res.json();
+      document.getElementById("rcp-err").textContent = payload.error || "Toggle failed";
+      return;
+    }
+    await loadRecipients();
+  } catch(e){
+    document.getElementById("rcp-err").textContent = e.message;
+  }
+}
+
+async function rcpRemove(id, email){
+  if(!confirm(`Remove ${email} from the weekly digest?`)) return;
+  try {
+    const res = await fetch(`/api/recipients?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if(!res.ok){
+      const payload = await res.json();
+      document.getElementById("rcp-err").textContent = payload.error || "Remove failed";
+      return;
+    }
+    await loadRecipients();
+  } catch(e){
+    document.getElementById("rcp-err").textContent = e.message;
+  }
+}
+
+async function rcpSendTest(){
+  const btn = document.getElementById("rcp-send-btn");
+  const err = document.getElementById("rcp-err");
+  err.textContent = "";
+  btn.disabled = true;
+  btn.textContent = "Sending…";
+  try {
+    const res = await fetch("/api/digest");
+    const payload = await res.json();
+    if(!res.ok) throw new Error(payload.error || `API ${res.status}`);
+    err.style.color = "var(--ok)";
+    err.textContent = `✓ Digest sent to ${payload.sent_to?.length || 0} recipient(s) (${payload.blockerCount||0} blockers, ${payload.riskCount||0} risks).`;
+    setTimeout(()=>{ err.style.color="var(--danger)"; err.textContent=""; }, 6000);
+  } catch(e){
+    err.style.color = "var(--danger)";
+    err.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "📨 Send digest now";
+  }
+}
+
+// ── State ─────────────────────────────────────────────────
+let data=[], curFilt="all", lastLoadedIds=new Set();
+let curLifecycle = "onboarding"; // active lifecycle tab — "pre-launch" | "onboarding" | "post-launch customer"
+
+// Returns true if a company belongs in the active lifecycle tab
+function matchesLifecycle(c){
+  const ls = (c.lifecyclestage || "").toLowerCase().trim();
+  return ls === curLifecycle.toLowerCase();
+}
+
+// Scope `data` to active lifecycle. Used by render(), summary(), channel panel.
+function lifecycleScoped(){
+  return data.filter(matchesLifecycle);
+}
+
+function lcSwitch(btn){
+  curLifecycle = btn.dataset.lc;
+  document.querySelectorAll(".lc-tab").forEach(b=>b.classList.remove("on"));
+  btn.classList.add("on");
+  summary();
+  render();
+  renderChannelPanel();
+}
+
+function updateLifecycleCounts(){
+  const buckets = { "pre-launch":0, "onboarding":0, "post-launch customer":0 };
+  for(const c of data){
+    const ls = (c.lifecyclestage || "").toLowerCase().trim();
+    if(buckets[ls] !== undefined) buckets[ls]++;
+  }
+  for(const k of Object.keys(buckets)){
+    const el = document.getElementById("lc-cnt-"+k);
+    if(el) el.textContent = buckets[k];
+  }
+}
+let CHANNEL_MAPPINGS = {};  // hs_object_id -> {slack_channel_id, slack_channel_name, ...}
+let BOT_CHANNELS = [];      // [{id, name, is_private}]
+let chModalTarget = null;   // company being assigned in the modal
+
+// ── Channel management ───────────────────────────────────
+async function loadChannels(){
+  try {
+    const res = await fetch("/api/channels");
+    if(!res.ok) return;
+    const payload = await res.json();
+    CHANNEL_MAPPINGS = payload.mappings || {};
+    BOT_CHANNELS = payload.bot_channels || [];
+    renderChannelPanel();
+  } catch(e){
+    console.warn("Channel mapping fetch failed:", e.message);
+  }
+}
+
+function renderChannelPanel(){
+  const tbody = document.getElementById("ch-rows");
+  if (!tbody) return;
+
+  // Render one row per Enterprise account in the active lifecycle tab
+  let linkedCount = 0, missingCount = 0;
+  const rows = [...lifecycleScoped()].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+
+  tbody.innerHTML = rows.map(c => {
+    const id = String(c.hs_object_id);
+    const mapping = CHANNEL_MAPPINGS[id];
+    const omName  = c.onboarding_manager_name || OWNERS[String(c.onboarding_manager)]?.name || null;
+    const psmName = c.practice_success_manager_name || OWNERS[String(c.practice_success_manager)]?.name || null;
+    const display = (c.name || "").replace(/-\s*\d+$/, "").trim();
+
+    let channelCell, actionCell;
+    if (mapping) {
+      linkedCount++;
+      channelCell = `<a class="ch-link" href="https://slack.com/app_redirect?channel=${mapping.slack_channel_id}" target="_blank">#${escapeHtml(mapping.slack_channel_name || mapping.slack_channel_id)}</a>`;
+      actionCell  = `<button class="ch-btn ghost" onclick="chOpenModal('${id}','${escapeJs(display)}')">Change</button>`;
+    } else {
+      missingCount++;
+      channelCell = `<span style="color:var(--danger);font-size:11px;font-weight:600;">⚠ Not assigned</span>`;
+      actionCell  = `<button class="ch-btn" onclick="chOpenModal('${id}','${escapeJs(display)}')">Set up channel</button>`;
+    }
+
+    return `
+      <tr>
+        <td><strong>${escapeHtml(display)}</strong>${c.state?` <span style="color:var(--muted);font-size:10px">· ${escapeHtml(c.state)}</span>`:''}</td>
+        <td>${omName ? `<span class="ch-mgr"><span class="ch-mgr-dot"></span>${escapeHtml(omName)}</span>` : `<span class="ch-mgr-none">—</span>`}</td>
+        <td>${psmName ? `<span class="ch-mgr"><span class="ch-mgr-dot" style="background:var(--gold)"></span>${escapeHtml(psmName)}</span>` : `<span class="ch-mgr-none">—</span>`}</td>
+        <td>${channelCell}</td>
+        <td>${actionCell}</td>
+      </tr>`;
+  }).join("");
+
+  document.getElementById("ch-pill-ok").textContent  = `${linkedCount} linked`;
+  document.getElementById("ch-pill-miss").textContent = `${missingCount} missing`;
+}
+
+function escapeHtml(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
+function escapeJs(s){return String(s||"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");}
+
+function chOpenModal(hsId, name){
+  chModalTarget = { hs_object_id: hsId, company_name: name };
+  document.getElementById("ch-modal-title").textContent = "Set up Slack channel";
+  document.getElementById("ch-modal-sub").textContent = name;
+  document.getElementById("ch-modal-err").textContent = "";
+
+  // Pre-fill suggested channel name (slugified)
+  const slug = name.toLowerCase().replace(/[^a-z0-9\s-]/g,"").trim().replace(/\s+/g,"-").replace(/-+/g,"-").slice(0,78);
+  document.getElementById("ch-new-name").value = slug;
+  document.getElementById("ch-new-private").checked = false;
+
+  // Populate "link existing" dropdown
+  const sel = document.getElementById("ch-assign-id");
+  sel.innerHTML = `<option value="">— select a channel —</option>` +
+    BOT_CHANNELS.map(ch => `<option value="${ch.id}" data-name="${escapeHtml(ch.name)}">${ch.is_private?"🔒 ":"# "}${escapeHtml(ch.name)}</option>`).join("");
+
+  chSwitchTab("create");
+  document.getElementById("ch-modal").classList.remove("hidden");
+}
+
+function chSwitchTab(tab){
+  document.getElementById("ch-tab-create").classList.toggle("on", tab==="create");
+  document.getElementById("ch-tab-assign").classList.toggle("on", tab==="assign");
+  document.getElementById("ch-pane-create").style.display = tab==="create" ? "block" : "none";
+  document.getElementById("ch-pane-assign").style.display = tab==="assign" ? "block" : "none";
+  document.getElementById("ch-modal-go").textContent = tab==="create" ? "Create channel" : "Link channel";
+  document.getElementById("ch-modal-go").dataset.mode = tab;
+}
+
+function chCloseModal(){
+  document.getElementById("ch-modal").classList.add("hidden");
+  chModalTarget = null;
+}
+
+async function chSubmitModal(){
+  if(!chModalTarget) return;
+  const mode = document.getElementById("ch-modal-go").dataset.mode || "create";
+  const btn  = document.getElementById("ch-modal-go");
+  const err  = document.getElementById("ch-modal-err");
+  btn.disabled = true; err.textContent = "";
+
+  try {
+    let body;
+    if (mode === "create") {
+      const channel_name = document.getElementById("ch-new-name").value.trim();
+      const is_private   = document.getElementById("ch-new-private").checked;
+      if (!channel_name) throw new Error("Channel name required");
+      body = { ...chModalTarget, channel_name, is_private };
+    } else {
+      const sel = document.getElementById("ch-assign-id");
+      const slack_channel_id = sel.value;
+      const slack_channel_name = sel.selectedOptions[0]?.dataset?.name;
+      if (!slack_channel_id) throw new Error("Pick a channel from the list");
+      body = { ...chModalTarget, slack_channel_id, slack_channel_name };
+    }
+
+    const res = await fetch(`/api/channels?action=${mode}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || `API ${res.status}`);
+
+    chCloseModal();
+    await loadChannels(); // pull fresh mappings into the table
+  } catch(e){
+    err.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────
+function ini(n){return(n||"?").split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();}
+function colFor(n){let h=0;for(const c of(n||""))h=(h*31+c.charCodeAt(0))&0xffff;return PAL[h%PAL.length];}
+function dSince(d){if(!d)return null;const v=Math.floor((Date.now()-new Date(d))/86400000);return isNaN(v)?null:v;}
+function dUntil(d){if(!d)return null;const v=Math.ceil((new Date(d)-Date.now())/86400000);return isNaN(v)?null:v;}
+function fDate(s){if(!s)return"—";try{return new Date(s).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});}catch{return s;}}
+function dcls(n){if(n===null)return"";if(n<=21)return"dn";if(n<=45)return"dm";return"dl";}
+function prog(c){
+  if((c.onboarding_status||"").toLowerCase()==="completed")return 100;
+  const d=parseInt(c.days_in_onboarding)||dSince(c.kickoff_date)||0;
+  return Math.min(95,Math.round((d/70)*100));
+}
+function fmtRev(v){
+  if(v===null||v===undefined)return null;
+  const n=parseFloat(v);
+  if(isNaN(n)||n===0)return null;
+  if(n>=1000000)return"$"+(n/1000000).toFixed(1)+"M";
+  if(n>=1000)return"$"+(n/1000).toFixed(0)+"k";
+  return"$"+n.toLocaleString();
+}
+
+// ── Filter / sort ─────────────────────────────────────────
+function filtered(){
+  const q=(document.getElementById("srch").value||"").toLowerCase();
+  return lifecycleScoped().filter(c=>{
+    const mox=(c.moxie_onboarding_status||"").toLowerCase();
+    const dl=dUntil(c.updated_target_launch_date||c.initial_target_launch_date);
+    const hasNotes=getNotesFor(c.name).length>0;
+    const ok=
+      curFilt==="all"     ? true :
+      curFilt==="delayed" ? mox.includes("delayed") :
+      curFilt==="notes"   ? hasNotes :
+      curFilt==="soon"    ? (dl!==null&&dl>=0&&dl<=30) : true;
+    return ok&&(!q||(c.name||"").toLowerCase().includes(q));
+  });
+}
+
+function sorted(arr){
+  const s=document.getElementById("srt").value;
+  return[...arr].sort((a,b)=>{
+    if(s==="days_d")return(parseInt(b.days_in_onboarding)||dSince(b.kickoff_date)||0)-(parseInt(a.days_in_onboarding)||dSince(a.kickoff_date)||0);
+    if(s==="days_a")return(parseInt(a.days_in_onboarding)||dSince(a.kickoff_date)||0)-(parseInt(b.days_in_onboarding)||dSince(b.kickoff_date)||0);
+    if(s==="launch_a")return new Date(a.updated_target_launch_date||a.initial_target_launch_date||"9999")-new Date(b.updated_target_launch_date||b.initial_target_launch_date||"9999");
+    if(s==="rev_d")return(parseFloat(b.monthly_revenue)||0)-(parseFloat(a.monthly_revenue)||0);
+    if(s==="name_a")return(a.name||"").localeCompare(b.name||"");
+    if(s==="mgr")return(a.onboarding_manager||"").localeCompare(b.onboarding_manager||"");
+    return 0;
+  });
+}
+
+function filt(f,btn){
+  curFilt=f;
+  document.querySelectorAll(".fb").forEach(b=>b.classList.remove("on"));
+  btn.classList.add("on");
+  render();
+}
+
+function toggle(id){
+  document.getElementById("card-"+id).classList.toggle("open");
+}
+
+function notesHtml(notes){
+  if(!notes.length) return`<div class="no-notes">No Slack updates for this account yet.</div>`;
+  return notes.map(n=>`
+    <div class="note">
+      <div class="note-meta">
+        <span class="nb nb-${n.type}">${n.type}</span>
+        <span class="note-date">${n.date}</span>
+      </div>
+      <div class="note-text">${n.text}</div>
+    </div>`).join("");
+}
+
+// ── Render ────────────────────────────────────────────────
+function render(){
+  const rows=sorted(filtered());
+  document.getElementById("tcount").textContent=`${rows.length} enterprise${rows.length!==1?"s":""}`;
+  const wrap=document.getElementById("rows-wrap");
+
+  if(!rows.length){
+    wrap.innerHTML=`<div class="empty-msg">No enterprises match this filter.</div>`;
+    return;
+  }
+
+  if(!document.querySelector('.rows-header')){
+    const hdr=document.createElement('div');
+    hdr.className='rows-header';
+    hdr.style.cssText='display:grid;grid-template-columns:2fr 120px 100px 140px 120px 130px 140px 28px;padding:0 0 6px 0;';
+    const cols=["Practice","Mo. Revenue","Days In","Target Launch","Status","Progress","Manager",""];
+    hdr.innerHTML=cols.map((c,i)=>`<div style="padding:0 16px;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.4px;font-weight:600;${i===2?'text-align:center':''}">${c}</div>`).join("");
+    wrap.before(hdr);
+  }
+
+  wrap.innerHTML=rows.map((c,i)=>{
+    const color   =colFor(c.name);
+    const num     =(c.name||"").match(/-\s*(\d+)$/)?.[1]||"";
+    const display =(c.name||"").replace(/-\s*\d+$/,"").trim();
+    const days    =parseInt(c.days_in_onboarding)||dSince(c.kickoff_date);
+    const ld      =c.updated_target_launch_date||c.initial_target_launch_date;
+    const dl      =dUntil(ld);
+    const isDelay =(c.moxie_onboarding_status||"").toLowerCase().includes("delayed");
+    const lcls    =dl===null?"":dl<0?"l-over":dl<=30?"l-warn":"l-ok";
+    const pr      =prog(c);
+    const pcol    =pr<30?"var(--danger)":pr<70?"var(--warn)":"var(--ok)";
+    const own     =OWNERS[String(c.onboarding_manager)];
+    const hsUrl   =`https://app.hubspot.com/contacts/22420370/record/0-2/${c.hs_object_id}`;
+    const rev     =fmtRev(c.monthly_revenue);
+    const notes   =getNotesFor(c.name);
+    const hasNote =notes.length>0;
+    const noteRisk=notes.some(n=>n.type==="risk"||n.type==="blocker");
+    const isNew   =!lastLoadedIds.has(String(c.hs_object_id));
+
+    let tlPct=0;
+    if(c.kickoff_date&&ld){
+      const s=new Date(c.kickoff_date).getTime(),e=new Date(ld).getTime(),n=Date.now();
+      tlPct=Math.min(100,Math.max(0,Math.round((n-s)/(e-s)*100)));
+    }
+
+    const stateStr=c.state?(c.state.length<=3?c.state.toUpperCase():c.state):"";
+
+    return`
+    <div class="row-card" id="card-${i}" style="animation-delay:${Math.min(i*.04,.4)}s">
+      <div class="row-main" onclick="toggle(${i})">
+        <div class="cell">
+          <div class="pco">
+            <div class="av" style="background:${color}22;color:${color}">${ini(c.name)}</div>
+            <div>
+              <div class="pname">
+                ${display}
+                ${isNew?'<span class="new-badge">NEW</span>':''}
+                ${noteRisk?' <span style="color:var(--danger);font-size:11px">⚠</span>':hasNote?' <span style="color:var(--muted);font-size:10px">💬</span>':''}
+              </div>
+              <div style="display:flex;align-items:center;gap:5px;margin-top:3px">
+                ${stateStr?`<span style="font-size:9px;font-weight:600;letter-spacing:.8px;color:#fff;background:var(--plum);padding:1px 6px;border-radius:3px">${stateStr}</span>`:''}
+                ${num?`<span class="pnum">#${num}</span>`:''}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cell">
+          ${rev?`<div class="rev-val">${rev}</div><div class="rev-lbl">mo. revenue</div>`:`<span class="rev-none">—</span>`}
+        </div>
+        <div class="cell" style="text-align:center">
+          ${days!==null?`<div class="days-wrap" style="justify-content:center"><span class="days-n ${dcls(days)}">${days}</span><span class="days-lbl">d</span></div>`:`<span style="color:var(--muted)">—</span>`}
+        </div>
+        <div class="cell">
+          <div class="${lcls}" style="font-size:12px">${fDate(ld)}</div>
+          ${dl!==null?`<div style="font-size:9px;color:var(--muted);margin-top:1px">${dl<0?Math.abs(dl)+'d overdue':dl+'d away'}</div>`:''}
+        </div>
+        <div class="cell">
+          ${isDelay?`<span class="chip c-warn">Delayed</span>`:`<span class="chip c-ok">In Progress</span>`}
+        </div>
+        <div class="cell">
+          <div class="pg-wrap">
+            <div class="pg-bar"><div class="pg-fill" style="width:${pr}%;background:${pcol}"></div></div>
+            <span class="pg-pct">${pr}%</span>
+          </div>
+        </div>
+        <div class="cell">
+          ${own?`<span class="mgr"><span class="md" style="background:${own.col}"></span>${own.name}</span>`:`<span style="color:var(--muted)">—</span>`}
+        </div>
+        <div class="cell" style="text-align:center"><span class="chev">▼</span></div>
+      </div>
+
+      <div class="row-detail">
+        <div class="detail-info">
+          <div class="di-grid">
+            <div><div class="di-lbl">Kickoff Date</div><div class="di-val">${fDate(c.kickoff_date)}</div></div>
+            <div><div class="di-lbl">Target Launch</div><div class="di-val ${lcls}">${fDate(ld)}</div></div>
+            <div><div class="di-lbl">Initial Target</div><div class="di-val" style="color:var(--muted)">${fDate(c.initial_target_launch_date)}</div></div>
+            <div><div class="di-lbl">Onboarding Manager</div><div class="di-val">${own?own.name:"—"}</div></div>
+            ${c.city?`<div><div class="di-lbl">Location</div><div class="di-val">${c.city}${stateStr?', '+stateStr:''}</div></div>`:''}
+            ${rev?`<div><div class="di-lbl">Monthly Revenue</div><div class="di-val" style="color:var(--ok)">${rev}</div></div>`:''}
+          </div>
+          ${c.kickoff_date&&ld?`
+          <div class="tl-wrap">
+            <div class="tl-hdr">
+              <span>Kickoff: ${fDate(c.kickoff_date)}</span>
+              <span>${days!==null?days+' days in':''}</span>
+              <span>Target: ${fDate(ld)}</span>
+            </div>
+            <div class="tl-track"><div class="tl-fill" style="width:${tlPct}%"></div></div>
+          </div>`:''}
+          <div style="margin-top:12px"><a href="${hsUrl}" target="_blank" class="hs-link">↗ View in HubSpot</a></div>
+        </div>
+        <div class="notes-panel">
+          <div class="notes-hdr">
+            <div class="notes-title">Slack Updates</div>
+            <div class="slack-pill">from Slack</div>
+          </div>
+          ${notesHtml(notes)}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function summary(){
+  // KPI cards reflect the active lifecycle tab
+  const scoped=lifecycleScoped();
+  const delayed=scoped.filter(c=>(c.moxie_onboarding_status||"").toLowerCase().includes("delayed"));
+  const soon=scoped.filter(c=>{
+    const dl=dUntil(c.updated_target_launch_date||c.initial_target_launch_date);
+    return dl!==null&&dl>=0&&dl<=30;
+  });
+  const dArr=scoped.map(c=>parseInt(c.days_in_onboarding)||dSince(c.kickoff_date)).filter(d=>d!==null&&d>0);
+  const avg=dArr.length?Math.round(dArr.reduce((a,b)=>a+b,0)/dArr.length):null;
+  document.getElementById("s-total").textContent=scoped.length;
+  document.getElementById("s-avg").textContent=avg?avg+"d":"—";
+  document.getElementById("s-soon").textContent=soon.length;
+  document.getElementById("s-del").textContent=delayed.length;
+  updateLifecycleCounts();
+}
+
+// ── Phase 2: Live refresh via Vercel serverless function ──
+// The /api/refresh endpoint (server-side) calls HubSpot MCP + Slack MCP via
+// Anthropic API using a server-stored ANTHROPIC_API_KEY env var.
+// Until /api/refresh is deployed, this gracefully falls back to cached data.
+async function loadAll(){
+  const btn=document.getElementById("refresh-btn");
+  const icon=document.getElementById("refresh-icon");
+  const overlay=document.getElementById("loading-overlay");
+  const sub=document.getElementById("loading-sub");
+  const txt=document.getElementById("loading-text");
+
+  btn.disabled=true;
+  icon.classList.add("spinning");
+  overlay.classList.remove("hidden");
+  txt.textContent="Syncing with HubSpot + Slack";
+  sub.textContent="Calling /api/refresh…";
+  document.getElementById("sync-lbl").textContent="Syncing…";
+
+  lastLoadedIds=new Set(data.map(c=>String(c.hs_object_id)));
+
+  try {
+    const res = await fetch("/api/refresh");
+    if(!res.ok) throw new Error(`API ${res.status}`);
+    const payload = await res.json();
+    if(payload.companies && payload.companies.length){
+      data = payload.companies;
+    }
+    if(payload.notes){
+      LIVE_NOTES = payload.notes;
+    }
+    document.getElementById("static-banner").style.display="none";
+  } catch(e) {
+    console.warn("Live refresh unavailable:", e.message);
+    document.getElementById("sync-lbl").textContent="Live refresh not deployed yet — showing cached data";
+  } finally {
+    btn.disabled=false;
+    icon.classList.remove("spinning");
+    overlay.classList.add("hidden");
+  }
+
+  summary();
+  render();
+  loadChannels(); // pull latest channel mappings + bot-known channels in background
+  loadRecipients(); // pull latest digest recipient list
+  const t=new Date();
+  const wasLive = LIVE_NOTES !== null;
+  document.getElementById("sync-lbl").textContent=
+    (wasLive?"Live · ":"Cached · ")+
+    t.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})+" · "+
+    t.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+}
+
+// ── Seed with last-known data (instant load) ──
+data=[
+  {"hs_object_id":"43470575266","name":"Rivkin Westside Aesthetics - 1875","state":"CA","city":"Los Angeles","moxie_onboarding_status":"Delayed Onboarding","onboarding_status":"In Progress","lifecyclestage":"onboarding","kickoff_date":"2025-11-06","initial_target_launch_date":"2026-04-17","updated_target_launch_date":"2026-06-15","days_in_onboarding":"174","onboarding_manager":"381256294","monthly_revenue":380000},
+  {"hs_object_id":"52397714324","name":"The Haven Aesthetics Lounge - 2036","state":"CA","city":"Rancho Santa Margarita","moxie_onboarding_status":"Delayed Onboarding","onboarding_status":"In Progress","lifecyclestage":"onboarding","kickoff_date":"2026-03-09","initial_target_launch_date":"2026-06-01","updated_target_launch_date":"2026-06-01","days_in_onboarding":"51","onboarding_manager":"742416394","monthly_revenue":78000},
+  {"hs_object_id":"52881286277","name":"Face & Body Boutique - 2048","state":"ID","city":"Boise","moxie_onboarding_status":"Onboarding","onboarding_status":"In Progress","lifecyclestage":"onboarding","kickoff_date":"2026-03-19","initial_target_launch_date":"2026-05-01","updated_target_launch_date":"2026-06-08","days_in_onboarding":"41","onboarding_manager":"381256294","monthly_revenue":65000},
+  {"hs_object_id":"53018470668","name":"Chinitas by Dailyn - 2064","state":"FL","city":"Miami Lakes","moxie_onboarding_status":"Onboarding","onboarding_status":"In Progress","lifecyclestage":"onboarding","kickoff_date":"2026-03-23","initial_target_launch_date":"2026-05-01","updated_target_launch_date":"2026-06-16","days_in_onboarding":"37","onboarding_manager":"381256294","monthly_revenue":300000},
+  {"hs_object_id":"53706844026","name":"Icon Anti-Aging & Aesthetics - 2096","state":"MI","city":"Birmingham","moxie_onboarding_status":"Onboarding","onboarding_status":"In Progress","lifecyclestage":"onboarding","kickoff_date":"2026-04-07","initial_target_launch_date":"2026-05-01","updated_target_launch_date":"2026-05-15","days_in_onboarding":"22","onboarding_manager":"381256294","monthly_revenue":500000},
+  {"hs_object_id":"54511244400","name":"Icon Anti-Aging & Aesthetics Rochester - 2123","state":"MI","city":"Rochester","moxie_onboarding_status":"Onboarding","onboarding_status":"In Progress","lifecyclestage":"onboarding","kickoff_date":"2026-04-07","initial_target_launch_date":null,"updated_target_launch_date":null,"days_in_onboarding":"1","onboarding_manager":"381256294","monthly_revenue":null},
+  {"hs_object_id":"53884334258","name":"AW Medspa - 2109","state":"IL","city":"Hoffman Estates","moxie_onboarding_status":"Onboarding","onboarding_status":"In Progress","lifecyclestage":"onboarding","kickoff_date":"2026-04-15","initial_target_launch_date":"2026-05-15","updated_target_launch_date":"2026-06-01","days_in_onboarding":"14","onboarding_manager":"381256294","monthly_revenue":50000},
+  {"hs_object_id":"53998522165","name":"Style Aesthetics - 2124","state":"OR","city":"Portland","moxie_onboarding_status":"Onboarding","onboarding_status":"In Progress","lifecyclestage":"onboarding","kickoff_date":"2026-04-21","initial_target_launch_date":"2026-06-01","updated_target_launch_date":"2026-06-01","days_in_onboarding":"8","onboarding_manager":"381256294","monthly_revenue":200000},
+  {"hs_object_id":"54144228100","name":"Re-Glo Aesthetics - 2122","state":"CA","city":"Los Gatos","moxie_onboarding_status":"Onboarding","onboarding_status":"In Progress","lifecyclestage":"onboarding","kickoff_date":"2026-04-21","initial_target_launch_date":"2026-05-30","updated_target_launch_date":"2026-05-30","days_in_onboarding":"8","onboarding_manager":"742416394","monthly_revenue":50000},
+  {"hs_object_id":"54272071455","name":"Face Alchemy - 2128","state":"TX","city":"Dripping Springs","moxie_onboarding_status":"Onboarding","onboarding_status":"In Progress","lifecyclestage":"onboarding","kickoff_date":"2026-04-29","initial_target_launch_date":"2026-06-15","updated_target_launch_date":"2026-06-15","days_in_onboarding":null,"onboarding_manager":"742416394","monthly_revenue":52000},
+];
+
+summary();
+render();
+loadChannels(); // initial channel data load
+loadRecipients(); // initial recipient data load
+document.getElementById("sync-lbl").textContent=
+  "Cached · "+new Date().toLocaleDateString("en-US",{month:"short",day:"numeric"})+" — hit Refresh once /api/refresh is deployed";
+</script>
+</body>
+</html>
