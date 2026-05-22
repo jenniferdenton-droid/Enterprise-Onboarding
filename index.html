@@ -1653,33 +1653,56 @@ async function loadAll(mode){
   txt.textContent =
     mode === "hubspot" ? "Refreshing HubSpot data" :
     mode === "slack"   ? "Pulling Slack messages (past 14 business days)" :
-    "Pulling Slack + running AI analysis";
+    "Running full sectional Slack + AI analysis";
   sub.textContent =
     mode === "hubspot" ? "~10 seconds" :
     mode === "slack"   ? "~15-20 seconds — raw messages only, no AI" :
-    "~30 seconds — pulling + categorizing messages";
+    "Will run in 4 sections (Slack pull + 3 lifecycle stages). ~45-60s total.";
   document.getElementById("sync-lbl").textContent="Syncing…";
 
   lastLoadedIds=new Set(data.map(c=>String(c.hs_object_id)));
 
   try {
-    const url =
-      mode === "hubspot" ? "/api/refresh?mode=hubspot" :
-      mode === "slack"   ? "/api/refresh?mode=slack" :
-      "/api/refresh";
-    const res = await fetch(url, {
-      headers: { "x-dashboard-key": key }
-    });
-    if(res.status === 401){
-      clearDashboardKey();
-      throw new Error("Wrong password — try again.");
+    let payload;
+    if (mode === "full") {
+      // SECTIONAL APPROACH: split into 4 short calls (each fits in Vercel 60s budget)
+      //   1. Slack raw pull (no AI)         ~15s
+      //   2. AI for Onboarding section      ~12s
+      //   3. AI for Pre-launch section      ~10s
+      //   4. AI for Post-launch section     ~15s
+      const steps = [
+        { url: "/api/refresh?mode=slack",                        label: "Pulling raw Slack messages…" },
+        { url: "/api/refresh?mode=ai&section=onboarding",        label: "Analyzing Onboarding accounts…" },
+        { url: "/api/refresh?mode=ai&section=pre-launch",        label: "Analyzing Pre-launch accounts…" },
+        { url: "/api/refresh?mode=ai&section=" + encodeURIComponent("post-launch customer"), label: "Analyzing Post-launch accounts…" }
+      ];
+      for (let i = 0; i < steps.length; i++) {
+        txt.textContent = `Step ${i+1}/${steps.length}`;
+        sub.textContent = steps[i].label;
+        const r = await fetch(steps[i].url, { headers: { "x-dashboard-key": key } });
+        if(r.status === 401){ clearDashboardKey(); throw new Error("Wrong password — try again."); }
+        if(!r.ok){
+          const errTxt = await r.text();
+          throw new Error(`Step ${i+1} failed: ${errTxt.slice(0,200)}`);
+        }
+        payload = await r.json();
+      }
+    } else {
+      // single-call modes: hubspot, slack
+      const url =
+        mode === "hubspot" ? "/api/refresh?mode=hubspot" :
+        mode === "slack"   ? "/api/refresh?mode=slack" :
+        "/api/refresh";
+      const res = await fetch(url, { headers: { "x-dashboard-key": key } });
+      if(res.status === 401){ clearDashboardKey(); throw new Error("Wrong password — try again."); }
+      if(!res.ok) throw new Error(`API ${res.status}`);
+      payload = await res.json();
     }
-    if(!res.ok) throw new Error(`API ${res.status}`);
-    const payload = await res.json();
-    if(payload.companies && payload.companies.length){
+
+    if(payload?.companies && payload.companies.length){
       data = payload.companies;
     }
-    if(payload.notes){
+    if(payload?.notes){
       LIVE_NOTES = payload.notes;
     }
     document.getElementById("static-banner").style.display="none";
