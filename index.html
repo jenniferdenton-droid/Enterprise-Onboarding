@@ -210,13 +210,13 @@
     <div class="seg-badge">Enterprise · Onboarding</div>
     <div class="live-dot"></div>
     <span class="sync-lbl" id="sync-lbl">Loading…</span>
+    <button class="refresh-btn" id="signin-btn" onclick="handleSignInClick()" title="Sign in once to enable Refresh / Pull Slack + AI / Send Digest"></button>
     <button class="refresh-btn" id="refresh-btn" onclick="loadAll('hubspot')" title="Pull latest HubSpot data only (~10s, fast)">
       <span class="spin-icon" id="refresh-icon">↻</span> Refresh HubSpot
     </button>
     <button class="refresh-btn" id="slack-ai-btn" onclick="loadAll('full')" title="Run full Slack pull + AI analysis + health scoring (~30s, slower)" style="background:var(--plum);color:#FBF5FF;border-color:var(--plum);">
       <span class="spin-icon" id="slack-ai-icon">🤖</span> Pull Slack + AI
     </button>
-    <button class="refresh-btn" onclick="if(confirm('Clear your saved password? You\\'ll be prompted next time you Pull Slack + AI.')){clearDashboardKey();alert('Password cleared.');}" title="Clear saved password from this browser" style="padding:6px 10px;color:var(--muted);">🔑</button>
   </div>
 </header>
 
@@ -683,30 +683,24 @@ async function rcpSendTest(){
   err.textContent = "";
   err.style.color = "var(--muted)";
 
-  // Single unified modal: shows what's about to happen + asks for the password
-  // in the same dialog (no separate confirm + prompt to avoid Chrome dialog suppression).
-  const savedKey = localStorage.getItem("moxie_dashboard_key");
-  let key;
-  if (savedKey) {
-    // Password already saved — just confirm intent with a single dialog (modal)
-    const ok = await showActionConfirmModal({
-      title: "Send weekly digest",
-      description: `<strong>Step 1 (~30s):</strong> Pull latest Slack messages from the past 14 business days and re-run AI analysis<br><br><strong>Step 2 (~5s):</strong> Build and email the digest to all active recipients<br><br>Using saved manager password.`,
-      confirmText: "Send digest now"
-    });
-    if (!ok) return;
-    key = savedKey;
-  } else {
-    // No saved password — show combined modal with password field
-    key = await showActionConfirmModal({
-      title: "Send weekly digest",
-      description: `<strong>Step 1 (~30s):</strong> Pull latest Slack messages from the past 14 business days and re-run AI analysis<br><br><strong>Step 2 (~5s):</strong> Build and email the digest to all active recipients`,
-      confirmText: "Send digest now",
-      requirePassword: true
-    });
-    if (!key) return;
-    localStorage.setItem("moxie_dashboard_key", key);
+  // If not signed in, show sign-in modal first
+  if(!isSignedIn()){
+    await showSignInModal("sending the weekly digest");
+    if(!isSignedIn()){
+      err.style.color = "var(--danger)";
+      err.textContent = "Sign in required to send digest.";
+      return;
+    }
   }
+
+  // Confirm intent (we're already signed in, so no password input here)
+  const ok = await showActionConfirmModal({
+    title: "Send weekly digest",
+    description: `<strong>Step 1 (~30s):</strong> Pull latest Slack messages from the past 14 business days and re-run AI analysis<br><br><strong>Step 2 (~5s):</strong> Build and email the digest to all active recipients`,
+    confirmText: "Send digest now"
+  });
+  if (!ok) return;
+  const key = localStorage.getItem("moxie_dashboard_key");
 
   btn.disabled = true;
 
@@ -1346,20 +1340,129 @@ function summary(){
   updateLifecycleCounts();
 }
 
-// ── Password gate (used for Refresh + Send Digest) ──
-// Uses a custom in-page modal because Chrome blocks consecutive native dialogs.
+// ── Sign-in / Password management ──
+// One-shot password entry up-front. Once signed in, all manager actions
+// (Refresh, Pull Slack+AI, Send Digest, edit status, archive, notes) work
+// without re-prompting until the user signs out.
+
+function isSignedIn(){
+  return !!localStorage.getItem("moxie_dashboard_key");
+}
+
 async function getDashboardKey(reason){
   let key = localStorage.getItem("moxie_dashboard_key");
   if(key) return key;
-  key = await showPasswordModal(reason);
-  if(key){
-    localStorage.setItem("moxie_dashboard_key", key);
-  }
-  return key || "";
+  // Not signed in — show sign-in modal
+  await showSignInModal(reason);
+  return localStorage.getItem("moxie_dashboard_key") || "";
 }
 
 function clearDashboardKey(){
   localStorage.removeItem("moxie_dashboard_key");
+  renderSignInButton();
+}
+
+function renderSignInButton(){
+  const btn = document.getElementById("signin-btn");
+  if(!btn) return;
+  const signed = isSignedIn();
+  if(signed){
+    btn.innerHTML = `🔒 Signed in <span style="font-size:9px;opacity:.7;margin-left:4px;">(sign out)</span>`;
+    btn.style.background = "rgba(46,138,106,.12)";
+    btn.style.color = "var(--ok)";
+    btn.style.borderColor = "rgba(46,138,106,.3)";
+    btn.title = "You're signed in — click to sign out";
+  } else {
+    btn.innerHTML = `🔓 Sign in`;
+    btn.style.background = "var(--gold)";
+    btn.style.color = "#fff";
+    btn.style.borderColor = "var(--gold)";
+    btn.title = "Sign in to enable Refresh / Pull Slack + AI / Send Digest";
+  }
+  // Disable/enable other action buttons based on sign-in status
+  ["refresh-btn","slack-ai-btn"].forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    if(signed){
+      el.disabled = false;
+      el.style.opacity = "1";
+      el.style.cursor = "pointer";
+    } else {
+      el.disabled = false; // Keep clickable so we can show "sign in first" message
+      el.style.opacity = "0.55";
+      el.style.cursor = "not-allowed";
+    }
+  });
+}
+
+async function handleSignInClick(){
+  if(isSignedIn()){
+    // Sign out flow
+    const ok = await showActionConfirmModal({
+      title: "Sign out",
+      description: "Clear your saved manager password from this browser? You'll need to sign in again to run Refresh, Pull Slack + AI, or Send Digest.",
+      confirmText: "Sign out"
+    });
+    if(ok){
+      clearDashboardKey();
+    }
+  } else {
+    await showSignInModal();
+  }
+}
+
+async function showSignInModal(reason){
+  return new Promise((resolve) => {
+    const bg = document.createElement("div");
+    bg.style.cssText = `position:fixed;inset:0;background:rgba(26,22,48,0.55);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;`;
+
+    const box = document.createElement("div");
+    box.style.cssText = `background:var(--surface);border-radius:12px;padding:32px;width:440px;max-width:90vw;box-shadow:0 12px 40px rgba(0,0,0,0.3);font-family:'DM Sans',sans-serif;`;
+    box.innerHTML = `
+      <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--text);margin-bottom:8px;">🔒 Manager Sign In</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.5;">
+        ${reason ? `<strong>Required to: ${reason}</strong><br><br>` : ''}
+        Enter the manager password once to unlock:<br>
+        <span style="display:inline-block;margin-top:6px;color:var(--text);">
+        &nbsp;•&nbsp;Refresh HubSpot data<br>
+        &nbsp;•&nbsp;Pull Slack + run AI analysis<br>
+        &nbsp;•&nbsp;Send weekly digest<br>
+        &nbsp;•&nbsp;Edit status, channels, notes, archive
+        </span>
+      </div>
+      <label style="display:block;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;font-weight:600;">Password</label>
+      <input type="password" id="si-modal-input" placeholder="Manager password" style="width:100%;background:var(--bg);border:1.5px solid var(--border);padding:11px 13px;border-radius:7px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);outline:none;margin-bottom:14px;">
+      <div id="si-modal-err" style="color:var(--danger);font-size:11px;min-height:14px;margin-bottom:6px;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+        <button id="si-modal-cancel" class="ch-btn ghost">Cancel</button>
+        <button id="si-modal-ok" class="ch-btn">Sign in →</button>
+      </div>
+    `;
+    bg.appendChild(box);
+    document.body.appendChild(bg);
+
+    const input = box.querySelector("#si-modal-input");
+    const okBtn = box.querySelector("#si-modal-ok");
+    const cancelBtn = box.querySelector("#si-modal-cancel");
+
+    const submit = () => {
+      const v = input.value.trim();
+      if(!v) return;
+      localStorage.setItem("moxie_dashboard_key", v);
+      bg.remove();
+      renderSignInButton();
+      resolve(v);
+    };
+    const cancel = () => { bg.remove(); resolve(""); };
+
+    okBtn.onclick = submit;
+    cancelBtn.onclick = cancel;
+    input.onkeydown = (e) => {
+      if(e.key === "Enter") submit();
+      if(e.key === "Escape") cancel();
+    };
+    setTimeout(() => input.focus(), 50);
+  });
 }
 
 // Unified action-confirmation modal. Can optionally include a password field.
@@ -1473,12 +1576,15 @@ async function loadAll(mode){
   const activeBtn = mode === "hubspot" ? refreshBtn : slackBtn;
   const activeIcon = mode === "hubspot" ? refreshIcon : slackIcon;
 
-  const reason = mode === "hubspot" ? "refreshing HubSpot data" : "pulling Slack + running AI analysis";
-  const key = await getDashboardKey(reason);
-  if(!key){
-    document.getElementById("sync-lbl").textContent="Refresh cancelled — password required";
-    return;
+  const reason = mode === "hubspot" ? "refresh HubSpot data" : "pull Slack + run AI analysis";
+  if(!isSignedIn()){
+    await showSignInModal(reason);
+    if(!isSignedIn()){
+      document.getElementById("sync-lbl").textContent="Sign in required to "+reason;
+      return;
+    }
   }
+  const key = localStorage.getItem("moxie_dashboard_key");
 
   refreshBtn.disabled = true;
   slackBtn.disabled = true;
@@ -1568,6 +1674,7 @@ async function bootstrapFromCache(){
 }
 
 (async () => {
+  renderSignInButton(); // sets initial Sign in / Signed in state
   const loadedFromCache = await bootstrapFromCache();
   summary();
   render();
