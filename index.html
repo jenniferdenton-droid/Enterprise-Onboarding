@@ -216,6 +216,7 @@
     <button class="refresh-btn" id="slack-ai-btn" onclick="loadAll('full')" title="Run full Slack pull + AI analysis + health scoring (~30s, slower)" style="background:var(--plum);color:#FBF5FF;border-color:var(--plum);">
       <span class="spin-icon" id="slack-ai-icon">🤖</span> Pull Slack + AI
     </button>
+    <button class="refresh-btn" onclick="if(confirm('Clear your saved password? You\\'ll be prompted next time you Pull Slack + AI.')){clearDashboardKey();alert('Password cleared.');}" title="Clear saved password from this browser" style="padding:6px 10px;color:var(--muted);">🔑</button>
   </div>
 </header>
 
@@ -1114,14 +1115,18 @@ function render(){
               <div class="pname" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span>${display}</span>
                 ${typeof c.health_score === "number" ? `
-                  <span title="AI Health Score — ${escapeHtml(c.health_reasoning||'')}" style="
-                    display:inline-flex;align-items:center;justify-content:center;
-                    min-width:34px;height:22px;padding:0 8px;border-radius:11px;
-                    font-size:11px;font-weight:700;font-family:'DM Sans',sans-serif;
-                    background:${c.health_color==='green'?'rgba(46,138,106,.15)':c.health_color==='yellow'?'rgba(140,101,32,.15)':'rgba(184,85,85,.15)'};
+                  <span title="AI Health Score · ${c.health_score}/100 — ${escapeHtml(c.health_reasoning||'')}" class="health-badge" style="
+                    display:inline-flex;align-items:center;gap:5px;
+                    padding:3px 10px 3px 7px;border-radius:14px;
+                    font-size:12px;font-weight:700;font-family:'DM Sans',sans-serif;
+                    background:${c.health_color==='green'?'rgba(46,138,106,.12)':c.health_color==='yellow'?'rgba(140,101,32,.12)':'rgba(184,85,85,.12)'};
                     color:${c.health_color==='green'?'var(--ok)':c.health_color==='yellow'?'var(--warn)':'var(--danger)'};
-                    border:1px solid ${c.health_color==='green'?'rgba(46,138,106,.3)':c.health_color==='yellow'?'rgba(140,101,32,.3)':'rgba(184,85,85,.3)'};
-                  ">${c.health_score}</span>
+                    border:1.5px solid ${c.health_color==='green'?'rgba(46,138,106,.4)':c.health_color==='yellow'?'rgba(140,101,32,.4)':'rgba(184,85,85,.4)'};
+                    box-shadow:0 1px 3px ${c.health_color==='green'?'rgba(46,138,106,.15)':c.health_color==='yellow'?'rgba(140,101,32,.15)':'rgba(184,85,85,.15)'};
+                  ">
+                    <span style="font-size:14px;line-height:1;">${c.health_color==='green'?'💚':c.health_color==='yellow'?'💛':'❤️'}</span>
+                    <span>${c.health_score}</span>
+                  </span>
                 ` : ''}
                 ${isNew?'<span class="new-badge">NEW</span>':''}
                 ${noteRisk?'<span style="color:var(--danger);font-size:11px">⚠</span>':hasNote?'<span style="color:var(--muted);font-size:10px">💬</span>':''}
