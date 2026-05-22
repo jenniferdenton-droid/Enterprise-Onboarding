@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "functions": {
+    "api/refresh.js":    { "maxDuration": 60 },
+    "api/cached.js":     { "maxDuration": 10 },
+    "api/digest.js":     { "maxDuration": 30 },
+    "api/channels.js":   { "maxDuration": 15 },
+    "api/recipients.js": { "maxDuration": 10 },
+    "api/status.js":     { "maxDuration": 10 }
+  },
+  "crons": [
+    {
+      "path": "/api/refresh",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/digest",
+      "schedule": "0 22 * * 5"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    }
+  ]
+}
