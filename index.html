@@ -214,7 +214,10 @@
     <button class="refresh-btn" id="refresh-btn" onclick="loadAll('hubspot')" title="Pull latest HubSpot data only (~10s, fast)">
       <span class="spin-icon" id="refresh-icon">↻</span> Refresh HubSpot
     </button>
-    <button class="refresh-btn" id="slack-ai-btn" onclick="loadAll('full')" title="Run full Slack pull + AI analysis + health scoring (~30s, slower)" style="background:var(--plum);color:#FBF5FF;border-color:var(--plum);">
+    <button class="refresh-btn" id="slack-only-btn" onclick="loadAll('slack')" title="Pull raw Slack messages from past 14 business days, NO AI analysis (~15s, medium)">
+      <span class="spin-icon" id="slack-only-icon">💬</span> Refresh Slack
+    </button>
+    <button class="refresh-btn" id="slack-ai-btn" onclick="loadAll('full')" title="Run full Slack pull + AI analysis (~30s, slower)" style="background:var(--plum);color:#FBF5FF;border-color:var(--plum);">
       <span class="spin-icon" id="slack-ai-icon">🤖</span> Pull Slack + AI
     </button>
   </div>
@@ -1428,7 +1431,7 @@ function renderSignInButton(){
     btn.title = "Sign in to enable Refresh / Pull Slack + AI / Send Digest";
   }
   // Disable/enable other action buttons based on sign-in status
-  ["refresh-btn","slack-ai-btn"].forEach(id => {
+  ["refresh-btn","slack-only-btn","slack-ai-btn"].forEach(id => {
     const el = document.getElementById(id);
     if(!el) return;
     if(signed){
@@ -1610,21 +1613,29 @@ function showPasswordModal(reason){
   });
 }
 
-// ── Refresh: pulls live HubSpot + Slack data via /api/refresh ──
-// mode: "hubspot" = HubSpot only (~10s), "full" = HubSpot + Slack + AI (~30s)
+// ── Refresh: pulls live data via /api/refresh ──
+// mode:
+//   "hubspot" = HubSpot only (~10s)
+//   "slack"   = HubSpot + Slack raw pull, NO AI (~15s) — for fast data verification
+//   "full"    = HubSpot + Slack + AI categorization (~30s)
 async function loadAll(mode){
   mode = mode || "full";
   const refreshBtn = document.getElementById("refresh-btn");
   const refreshIcon = document.getElementById("refresh-icon");
+  const slackOnlyBtn = document.getElementById("slack-only-btn");
+  const slackOnlyIcon = document.getElementById("slack-only-icon");
   const slackBtn = document.getElementById("slack-ai-btn");
   const slackIcon = document.getElementById("slack-ai-icon");
   const overlay = document.getElementById("loading-overlay");
   const sub = document.getElementById("loading-sub");
   const txt = document.getElementById("loading-text");
-  const activeBtn = mode === "hubspot" ? refreshBtn : slackBtn;
-  const activeIcon = mode === "hubspot" ? refreshIcon : slackIcon;
+  const activeBtn = mode === "hubspot" ? refreshBtn : (mode === "slack" ? slackOnlyBtn : slackBtn);
+  const activeIcon = mode === "hubspot" ? refreshIcon : (mode === "slack" ? slackOnlyIcon : slackIcon);
 
-  const reason = mode === "hubspot" ? "refresh HubSpot data" : "pull Slack + run AI analysis";
+  const reason =
+    mode === "hubspot" ? "refresh HubSpot data" :
+    mode === "slack"   ? "refresh raw Slack messages (no AI)" :
+    "pull Slack + run AI analysis";
   if(!isSignedIn()){
     await showSignInModal(reason);
     if(!isSignedIn()){
@@ -1635,17 +1646,27 @@ async function loadAll(mode){
   const key = localStorage.getItem("moxie_dashboard_key");
 
   refreshBtn.disabled = true;
+  slackOnlyBtn.disabled = true;
   slackBtn.disabled = true;
   activeIcon.classList.add("spinning");
   overlay.classList.remove("hidden");
-  txt.textContent = mode === "hubspot" ? "Refreshing HubSpot data" : "Pulling Slack + running AI analysis";
-  sub.textContent = mode === "hubspot" ? "~10 seconds" : "~30 seconds — categorizing messages, scoring health";
+  txt.textContent =
+    mode === "hubspot" ? "Refreshing HubSpot data" :
+    mode === "slack"   ? "Pulling Slack messages (past 14 business days)" :
+    "Pulling Slack + running AI analysis";
+  sub.textContent =
+    mode === "hubspot" ? "~10 seconds" :
+    mode === "slack"   ? "~15-20 seconds — raw messages only, no AI" :
+    "~30 seconds — pulling + categorizing messages";
   document.getElementById("sync-lbl").textContent="Syncing…";
 
   lastLoadedIds=new Set(data.map(c=>String(c.hs_object_id)));
 
   try {
-    const url = mode === "hubspot" ? "/api/refresh?mode=hubspot" : "/api/refresh";
+    const url =
+      mode === "hubspot" ? "/api/refresh?mode=hubspot" :
+      mode === "slack"   ? "/api/refresh?mode=slack" :
+      "/api/refresh";
     const res = await fetch(url, {
       headers: { "x-dashboard-key": key }
     });
@@ -1668,6 +1689,7 @@ async function loadAll(mode){
     alert(e.message || "Refresh failed");
   } finally {
     refreshBtn.disabled = false;
+    slackOnlyBtn.disabled = false;
     slackBtn.disabled = false;
     activeIcon.classList.remove("spinning");
     overlay.classList.add("hidden");
