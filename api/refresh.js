@@ -71,9 +71,9 @@ export default async function handler(req, res) {
   if (missing.length) return res.status(500).json({ error: `Missing env vars: ${missing.join(", ")}` });
 
   try {
-    // ── Step 1: HubSpot — companies + deal revenue ──
+    // ── Step 1: HubSpot — companies (revenue is on the company record itself
+    // as average_l3m_revenue, so no deal join needed anymore) ──
     const companies = await fetchHubSpotCompanies(HUBSPOT_TOKEN);
-    await enrichWithDealRevenue(companies, HUBSPOT_TOKEN);
 
     // ── Step 1b: Resolve OM + PSM owner IDs to names (non-fatal) ──
     try { await resolveOwners(companies, HUBSPOT_TOKEN); }
@@ -133,7 +133,8 @@ export default async function handler(req, res) {
         accounts_with_notes: Object.keys(notes).length,
         unmatched_channels: channels
           .filter(ch => !Object.values(matches).flat().some(m => m.id === ch.id))
-          .map(ch => ch.name)
+          .map(ch => ch.name),
+        hubspot_field_warnings: fetchHubSpotCompanies._lastFieldErrors || []
       }
     };
 
@@ -171,8 +172,37 @@ async function fetchHubSpotCompanies(token) {
     .map(s => s.trim())
     .filter(Boolean);
 
-  const segmentFields = ["provider_segment_pre_launch", "provider_segment_post_launch"];
+  // Try both segment fields. If either doesn't exist in this HubSpot tenant,
+  // log a warning and continue — don't fail the whole refresh.
+  // Configurable via HUBSPOT_SEGMENT_FIELDS env var (comma list).
+  // NOTE: Moxie's post-launch field has double + trailing underscore (HubSpot
+  // legacy naming for "(Post-Launch)" parenthetical labels).
+  const segmentFields = (process.env.HUBSPOT_SEGMENT_FIELDS
+    || "provider_segment_pre_launch,provider_segment__post_launch_")
+    .split(",").map(s => s.trim()).filter(Boolean);
+
   const rowsById = new Map();
+  const fieldErrors = [];
+
+  // Properties to pull. These match Moxie's HubSpot internal names exactly.
+  const REQUESTED_PROPS = [
+    "name", "state", "city",
+    "provider_segment_pre_launch",
+    "provider_segment__post_launch_",
+    "lifecyclestage",
+    "moxie_onboarding_status", "onboarding_status",
+    "kickoff_date",
+    "initial_target_launch_date",
+    "current_target_launch_date",
+    "days_in_onboarding",
+    "days_to_close",
+    "onboarding_manager",                   // OM owner id
+    "provider_success_manager",             // PSM owner id (correct Moxie field name)
+    "hubspot_owner_id",                     // generic fallback
+    "average_l3m_revenue",                  // L3M monthly revenue (company-direct, no deal join)
+    "delayed_reason",                       // why an account is delayed
+    "pre_onboarding_reason"                 // pre-onboarding / delayed-kickoff reason
+  ];
 
   for (const segField of segmentFields) {
     const filterGroups = lifecycles.map(ls => ({
@@ -183,60 +213,77 @@ async function fetchHubSpotCompanies(token) {
     }));
 
     let after = undefined;
+    let segFieldFailed = false;
     do {
       const r = await fetch("https://api.hubapi.com/crm/v3/objects/companies/search", {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           filterGroups,
-          properties: [
-            "name", "state", "city",
-            "provider_segment_pre_launch", "provider_segment_post_launch", "lifecyclestage",
-            "moxie_onboarding_status", "onboarding_status",
-            "kickoff_date", "initial_target_launch_date", "updated_target_launch_date",
-            "days_in_onboarding",
-            "onboarding_manager",                  // OM owner id
-            "practice_success_manager",            // PSM owner id (post-launch)
-            "practice_success_manager__at_launch_", // PSM at-launch owner id (HubSpot internal name varies)
-            "hubspot_owner_id"
-          ],
+          properties: REQUESTED_PROPS,
           sorts: [{ propertyName: "kickoff_date", direction: "DESCENDING" }],
           limit: 100,
           after
         })
       });
-      if (!r.ok) throw new Error(`HubSpot companies (${segField}) ${r.status}: ${await r.text()}`);
+      if (!r.ok) {
+        const errText = await r.text();
+        console.warn(`HubSpot segment field "${segField}" failed (${r.status}): ${errText}`);
+        fieldErrors.push({ field: segField, status: r.status, error: errText.slice(0, 200) });
+        segFieldFailed = true;
+        break;
+      }
       const data = await r.json();
       for (const row of (data.results || [])) {
         if (!rowsById.has(row.id)) rowsById.set(row.id, row);
       }
       after = data.paging?.next?.after;
     } while (after);
+
+    if (segFieldFailed) continue;  // try the next field, don't abort
   }
 
-  return Array.from(rowsById.values()).map(row => ({
-    hs_object_id: row.id,
-    name: row.properties.name || null,
-    state: row.properties.state || null,
-    city: row.properties.city || null,
-    segment_pre_launch: row.properties.provider_segment_pre_launch || null,
-    segment_post_launch: row.properties.provider_segment_post_launch || null,
-    segment: row.properties.provider_segment_pre_launch || row.properties.provider_segment_post_launch || null,
-    lifecyclestage: (row.properties.lifecyclestage || "").toLowerCase() || null,
-    moxie_onboarding_status: row.properties.moxie_onboarding_status || null,
-    onboarding_status: row.properties.onboarding_status || null,
-    kickoff_date: dateOnly(row.properties.kickoff_date),
-    initial_target_launch_date: dateOnly(row.properties.initial_target_launch_date),
-    updated_target_launch_date: dateOnly(row.properties.updated_target_launch_date),
-    days_in_onboarding: row.properties.days_in_onboarding || null,
-    onboarding_manager: row.properties.onboarding_manager || null,
-    onboarding_manager_name: null,             // populated by resolveOwners
-    practice_success_manager: row.properties.practice_success_manager
-      || row.properties.practice_success_manager__at_launch_
-      || null,
-    practice_success_manager_name: null,       // populated by resolveOwners
-    monthly_revenue: null
-  }));
+  // If BOTH fields failed, that's a real problem — surface it
+  if (!rowsById.size && fieldErrors.length === segmentFields.length) {
+    throw new Error(`All segment fields failed: ${JSON.stringify(fieldErrors)}`);
+  }
+
+  // Expose any field warnings in the response meta so the dashboard can show them
+  fetchHubSpotCompanies._lastFieldErrors = fieldErrors;
+
+  return Array.from(rowsById.values()).map(row => {
+    const p = row.properties || {};
+    const rev = parseFloat(p.average_l3m_revenue);
+    return {
+      hs_object_id: row.id,
+      name: p.name || null,
+      state: p.state || null,
+      city: p.city || null,
+      segment_pre_launch: p.provider_segment_pre_launch || null,
+      segment_post_launch: p.provider_segment__post_launch_ || null,
+      segment: p.provider_segment_pre_launch || p.provider_segment__post_launch_ || null,
+      lifecyclestage: (p.lifecyclestage || "").toLowerCase() || null,
+      moxie_onboarding_status: p.moxie_onboarding_status || null,
+      onboarding_status: p.onboarding_status || null,
+      kickoff_date: dateOnly(p.kickoff_date),
+      initial_target_launch_date: dateOnly(p.initial_target_launch_date),
+      current_target_launch_date: dateOnly(p.current_target_launch_date),
+      // Legacy alias kept so any UI code still referencing the old name keeps working
+      updated_target_launch_date: dateOnly(p.current_target_launch_date),
+      days_in_onboarding: p.days_in_onboarding || null,
+      days_to_close: p.days_to_close || null,
+      onboarding_manager: p.onboarding_manager || null,
+      onboarding_manager_name: null,           // populated by resolveOwners
+      provider_success_manager: p.provider_success_manager || null,
+      provider_success_manager_name: null,     // populated by resolveOwners
+      // Legacy alias so existing UI/digest code keeps working
+      practice_success_manager: p.provider_success_manager || null,
+      practice_success_manager_name: null,
+      monthly_revenue: isNaN(rev) ? null : rev,
+      delayed_reason: p.delayed_reason || null,
+      pre_onboarding_reason: p.pre_onboarding_reason || null
+    };
+  });
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -248,7 +295,7 @@ async function resolveOwners(companies, token) {
   const ownerIds = new Set();
   for (const c of companies) {
     if (c.onboarding_manager) ownerIds.add(String(c.onboarding_manager));
-    if (c.practice_success_manager) ownerIds.add(String(c.practice_success_manager));
+    if (c.provider_success_manager) ownerIds.add(String(c.provider_success_manager));
   }
   if (!ownerIds.size) return {};
 
@@ -270,42 +317,22 @@ async function resolveOwners(companies, token) {
     after = data.paging?.next?.after;
   } while (after);
 
-  // Populate the company records
+  // Populate the company records (set both new + legacy alias fields)
   for (const c of companies) {
     if (c.onboarding_manager && ownerMap[String(c.onboarding_manager)]) {
       c.onboarding_manager_name = ownerMap[String(c.onboarding_manager)].name;
       c.onboarding_manager_email = ownerMap[String(c.onboarding_manager)].email;
     }
-    if (c.practice_success_manager && ownerMap[String(c.practice_success_manager)]) {
-      c.practice_success_manager_name = ownerMap[String(c.practice_success_manager)].name;
-      c.practice_success_manager_email = ownerMap[String(c.practice_success_manager)].email;
+    if (c.provider_success_manager && ownerMap[String(c.provider_success_manager)]) {
+      const o = ownerMap[String(c.provider_success_manager)];
+      c.provider_success_manager_name = o.name;
+      c.provider_success_manager_email = o.email;
+      // Legacy alias for existing UI/digest code
+      c.practice_success_manager_name = o.name;
+      c.practice_success_manager_email = o.email;
     }
   }
   return ownerMap;
-}
-
-async function enrichWithDealRevenue(companies, token) {
-  await Promise.all(companies.map(async (c) => {
-    try {
-      const a = await fetch(
-        `https://api.hubapi.com/crm/v4/objects/companies/${c.hs_object_id}/associations/deals`,
-        { headers: { "Authorization": `Bearer ${token}` } }
-      );
-      if (!a.ok) return;
-      const assoc = await a.json();
-      const dealIds = (assoc.results || []).map(r => r.toObjectId).filter(Boolean);
-      if (!dealIds.length) return;
-
-      const d = await fetch(
-        `https://api.hubapi.com/crm/v3/objects/deals/${dealIds[0]}?properties=monthly_medspa_revenue,dealname`,
-        { headers: { "Authorization": `Bearer ${token}` } }
-      );
-      if (!d.ok) return;
-      const deal = await d.json();
-      const rev = parseFloat(deal.properties?.monthly_medspa_revenue);
-      if (!isNaN(rev) && rev > 0) c.monthly_revenue = rev;
-    } catch { /* non-fatal */ }
-  }));
 }
 
 function dateOnly(s) {
