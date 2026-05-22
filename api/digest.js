@@ -258,7 +258,7 @@ function renderAccountRow(c, notesByKey) {
   // Revenue — sits next to target launch with "Revenue:" label
   const rev = parseFloat(c.monthly_revenue);
   const revStr = isNaN(rev) || rev === 0
-    ? `<span style="color:#999;font-size:11px;margin-left:14px;">Revenue: —</span>`
+    ? `<span style="color:#999;font-size:11px;margin-left:14px;font-style:italic;"><strong>Revenue:</strong> TBD</span>`
     : `<span style="color:#1a1a1a;font-size:11px;margin-left:14px;"><strong>Revenue:</strong> ${fmtMoney(rev)}/mo</span>`;
 
   // Target launch
