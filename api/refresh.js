@@ -100,10 +100,13 @@ export default async function handler(req, res) {
       ownerResolveResult = { ok: false, error: e.message };
     }
 
-    // Mode: "hubspot" = HubSpot pull only, skip Slack + AI (fast, ~10s).
-    //       Anything else (default) = full pipeline including Slack + AI (~30s).
+    // Mode controls how much of the pipeline runs:
+    //   "hubspot"    = HubSpot pull only, no Slack, no AI (~10s)
+    //   "slack"      = HubSpot + Slack pull (raw messages), NO AI (~15-20s) — for fast data verification
+    //   (default)    = full pipeline including Slack + AI categorization (~30-45s)
     const mode = (req.query?.mode || "").toLowerCase();
     const hubspotOnly = mode === "hubspot";
+    const skipAI = mode === "slack" || mode === "hubspot";
 
     // ── Step 2: Slack — discover channels the bot can read ──
     const channels = hubspotOnly ? [] : await listBotChannels(SLACK_BOT_TOKEN);
@@ -187,8 +190,16 @@ export default async function handler(req, res) {
         }
       }
 
-      // PHASE 2: AI analysis on the raw messages
-      if (Object.keys(messagesByCompany).length) {
+      // PHASE 2: AI analysis on the raw messages (skipped if mode=slack)
+      if (skipAI) {
+        console.log(`Skipping AI categorization (mode=${mode}) — raw messages saved for review`);
+        // Preserve existing AI notes from previous full-run cache if available
+        try {
+          const { readSnapshot } = await import("../lib/firebase.js");
+          const cached = await readSnapshot();
+          if (cached?.notes) notes = cached.notes;
+        } catch (e) { /* non-fatal */ }
+      } else if (Object.keys(messagesByCompany).length) {
         const t5 = Date.now();
         notes = await categorizeMessages(messagesByCompany, ANTHROPIC_API_KEY);
         timing.claude_categorize_ms = Date.now() - t5;
@@ -231,7 +242,7 @@ export default async function handler(req, res) {
       notes,
       synced_at: new Date().toISOString(),
       meta: {
-        mode: hubspotOnly ? "hubspot" : "full",
+        mode: hubspotOnly ? "hubspot" : (skipAI ? "slack" : "full"),
         company_count: companies.length,
         channels_discovered: channels.length,
         accounts_with_channels: Object.keys(matches).length,
