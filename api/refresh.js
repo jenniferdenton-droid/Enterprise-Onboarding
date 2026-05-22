@@ -71,9 +71,14 @@ export default async function handler(req, res) {
   if (missing.length) return res.status(500).json({ error: `Missing env vars: ${missing.join(", ")}` });
 
   try {
-    // ── Step 1: HubSpot — companies (revenue is on the company record itself
-    // as average_l3m_revenue, so no deal join needed anymore) ──
+    // ── Step 1: HubSpot — companies + deal revenue + launch-date history ──
     const companies = await fetchHubSpotCompanies(HUBSPOT_TOKEN);
+
+    // Run these three enrichments in parallel — they're all independent
+    await Promise.all([
+      enrichWithDealRevenue(companies, HUBSPOT_TOKEN).catch(e => console.warn("deal revenue:", e.message)),
+      fetchLaunchDateHistory(companies, HUBSPOT_TOKEN).catch(e => console.warn("launch history:", e.message))
+    ]);
 
     // ── Step 1b: Resolve OM + PSM owner IDs to names (non-fatal) ──
     let ownerResolveResult = { ok: false, count: 0, error: null };
@@ -156,11 +161,11 @@ export default async function handler(req, res) {
       matches = mapCompaniesToChannels(companies, channels, OVERRIDES, savedMappings);
 
       // Pull history from each matched channel.
-      // Default: 14 days back. Override via SLACK_HISTORY_DAYS env var.
-      const historyDays = parseInt(process.env.SLACK_HISTORY_DAYS) || 14;
+      // Default: 14 BUSINESS days (skip weekends). Override via SLACK_HISTORY_BUSINESS_DAYS env var.
+      const historyDays = parseInt(process.env.SLACK_HISTORY_BUSINESS_DAYS) || 14;
       const t4 = Date.now();
       messagesByCompany = await fetchAllChannelHistory(SLACK_BOT_TOKEN, matches, historyDays);
-      console.log(`Slack history fetch (${historyDays}d) took ${Date.now() - t4}ms for ${Object.keys(matches).length} accounts`);
+      console.log(`Slack history fetch (${historyDays} business days, with threads) took ${Date.now() - t4}ms for ${Object.keys(matches).length} accounts`);
 
       // Categorize via Claude
       if (Object.keys(messagesByCompany).length) {
@@ -320,13 +325,13 @@ async function fetchHubSpotCompanies(token) {
     "moxie_onboarding_status", "onboarding_status",
     "kickoff_date",
     "initial_target_launch_date",
-    "current_target_launch_date",
+    "updated_target_launch_date",           // primary target launch field (Moxie naming)
+    "current_target_launch_date",           // legacy alias kept for safety
     "days_in_onboarding",
     "days_to_close",
     "onboarding_manager",                   // OM owner id
     "provider_success_manager",             // PSM owner id (correct Moxie field name)
     "hubspot_owner_id",                     // generic fallback
-    "average_l3m_revenue",                  // L3M monthly revenue (company-direct, no deal join)
     "delayed_reason",                       // why an account is delayed
     "pre_onboarding_reason"                 // pre-onboarding / delayed-kickoff reason
   ];
@@ -416,7 +421,9 @@ async function fetchHubSpotCompanies(token) {
 
   return Array.from(rowsById.values()).map(row => {
     const p = row.properties || {};
-    const rev = parseFloat(p.average_l3m_revenue);
+    // Primary launch date = updated_target_launch_date (Moxie's canonical field).
+    // Fall back to current_target_launch_date if updated is empty.
+    const target = p.updated_target_launch_date || p.current_target_launch_date;
     return {
       hs_object_id: row.id,
       name: p.name || null,
@@ -430,9 +437,9 @@ async function fetchHubSpotCompanies(token) {
       onboarding_status: p.onboarding_status || null,
       kickoff_date: dateOnly(p.kickoff_date),
       initial_target_launch_date: dateOnly(p.initial_target_launch_date),
-      current_target_launch_date: dateOnly(p.current_target_launch_date),
-      // Legacy alias kept so any UI code still referencing the old name keeps working
-      updated_target_launch_date: dateOnly(p.current_target_launch_date),
+      updated_target_launch_date: dateOnly(target),
+      // Alias for any old code path
+      current_target_launch_date: dateOnly(target),
       days_in_onboarding: p.days_in_onboarding || null,
       days_to_close: p.days_to_close || null,
       onboarding_manager: p.onboarding_manager || null,
@@ -442,11 +449,104 @@ async function fetchHubSpotCompanies(token) {
       // Legacy alias so existing UI/digest code keeps working
       practice_success_manager: p.provider_success_manager || null,
       practice_success_manager_name: null,
-      monthly_revenue: isNaN(rev) ? null : rev,
+      monthly_revenue: null,                   // populated by enrichWithDealRevenue
       delayed_reason: p.delayed_reason || null,
       pre_onboarding_reason: p.pre_onboarding_reason || null
     };
   });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Deal revenue enrichment — Moxie tracks monthly_medspa_revenue on the Deal,
+// not the Company. We join via company→deal association.
+// ────────────────────────────────────────────────────────────────────────────
+
+async function enrichWithDealRevenue(companies, token) {
+  await Promise.all(companies.map(async (c) => {
+    try {
+      const a = await fetch(
+        `https://api.hubapi.com/crm/v4/objects/companies/${c.hs_object_id}/associations/deals`,
+        { headers: { "Authorization": `Bearer ${token}` } }
+      );
+      if (!a.ok) return;
+      const assoc = await a.json();
+      const dealIds = (assoc.results || []).map(r => r.toObjectId).filter(Boolean);
+      if (!dealIds.length) return;
+
+      // Pull monthly_medspa_revenue from the first associated deal
+      const d = await fetch(
+        `https://api.hubapi.com/crm/v3/objects/deals/${dealIds[0]}?properties=monthly_medspa_revenue,dealname,dealstage`,
+        { headers: { "Authorization": `Bearer ${token}` } }
+      );
+      if (!d.ok) return;
+      const deal = await d.json();
+      const rev = parseFloat(deal.properties?.monthly_medspa_revenue);
+      if (!isNaN(rev) && rev > 0) c.monthly_revenue = rev;
+    } catch (e) { /* non-fatal */ }
+  }));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Launch date change detection — uses HubSpot property history.
+// Fills c.launch_date_change_type ("pushed_back" | "moved_up" | "removed"),
+//        c.launch_date_previous_value, c.launch_date_changed_at.
+// ────────────────────────────────────────────────────────────────────────────
+
+async function fetchLaunchDateHistory(companies, token) {
+  if (!companies.length) return;
+  // HubSpot batch read supports max 100 ids per call
+  const batches = [];
+  for (let i = 0; i < companies.length; i += 100) {
+    batches.push(companies.slice(i, i + 100));
+  }
+
+  await Promise.all(batches.map(async (batch) => {
+    try {
+      const r = await fetch("https://api.hubapi.com/crm/v3/objects/companies/batch/read", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inputs: batch.map(c => ({ id: c.hs_object_id })),
+          properties: ["updated_target_launch_date"],
+          propertiesWithHistory: ["updated_target_launch_date"]
+        })
+      });
+      if (!r.ok) {
+        console.warn("Launch date history batch failed:", r.status);
+        return;
+      }
+      const data = await r.json();
+      for (const row of (data.results || [])) {
+        const history = row.propertiesWithHistory?.updated_target_launch_date;
+        if (!Array.isArray(history) || history.length < 2) continue;
+
+        // History is newest first
+        const current = history[0];
+        const previous = history[1];
+
+        // Convert both to date-only strings for comparison
+        const currVal = current.value ? dateOnly(current.value) : null;
+        const prevVal = previous.value ? dateOnly(previous.value) : null;
+
+        let changeType = null;
+        if (currVal === prevVal) continue; // no real change
+        if (!currVal) changeType = "removed";
+        else if (!prevVal) continue; // first set, not a change
+        else if (new Date(currVal) > new Date(prevVal)) changeType = "pushed_back";
+        else changeType = "moved_up";
+
+        // Find the company and attach
+        const c = companies.find(c => String(c.hs_object_id) === String(row.id));
+        if (c) {
+          c.launch_date_change_type = changeType;
+          c.launch_date_previous_value = prevVal;
+          c.launch_date_changed_at = current.timestamp || null;
+        }
+      }
+    } catch (e) {
+      console.warn("Launch date history fetch error:", e.message);
+    }
+  }));
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -682,17 +782,31 @@ function mapCompaniesToChannels(companies, channels, overrides, savedMappings = 
   return result;
 }
 
-async function fetchAllChannelHistory(token, matches, daysBack) {
-  const oldest = Math.floor(Date.now() / 1000 - daysBack * 86400);
+// 14 BUSINESS days = walk back skipping weekends
+function businessDaysAgoEpoch(days) {
+  const d = new Date();
+  let count = 0;
+  while (count < days) {
+    d.setDate(d.getDate() - 1);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  d.setHours(0, 0, 0, 0);
+  return Math.floor(d.getTime() / 1000);
+}
+
+async function fetchAllChannelHistory(token, matches, businessDaysBack) {
+  // 14 business days ≈ 20 calendar days. We compute the exact epoch.
+  const oldest = businessDaysAgoEpoch(businessDaysBack);
   const messagesByCompany = {};
 
   await Promise.all(Object.entries(matches).map(async ([companyKey, chs]) => {
     const allMsgs = [];
     await Promise.all(chs.map(async (ch) => {
       try {
-        // Cap at 100 messages per channel — covers 14-day window in most channels
+        // Cap at 150 messages per channel — covers the 14-business-day window
         const r = await fetch(
-          `https://slack.com/api/conversations.history?channel=${ch.id}&oldest=${oldest}&limit=100`,
+          `https://slack.com/api/conversations.history?channel=${ch.id}&oldest=${oldest}&limit=150`,
           { headers: { "Authorization": `Bearer ${token}` } }
         );
         const data = await r.json();
@@ -700,25 +814,52 @@ async function fetchAllChannelHistory(token, matches, daysBack) {
           console.warn(`Slack history ${ch.name} (${ch.id}): ${data.error}`);
           return;
         }
+
+        // First pass: collect top-level messages
+        const topLevel = [];
         for (const m of (data.messages || [])) {
           if (!m.text) continue;
           if (m.subtype && m.subtype !== "thread_broadcast") continue;
+          topLevel.push(m);
+        }
+
+        // Second pass: for messages with threads, fetch replies + merge inline
+        await Promise.all(topLevel.map(async (m) => {
+          let mergedText = m.text;
+          if (m.reply_count > 0 && m.thread_ts) {
+            try {
+              const tr = await fetch(
+                `https://slack.com/api/conversations.replies?channel=${ch.id}&ts=${m.thread_ts}&limit=20`,
+                { headers: { "Authorization": `Bearer ${token}` } }
+              );
+              const td = await tr.json();
+              if (td.ok && Array.isArray(td.messages) && td.messages.length > 1) {
+                const replies = td.messages.slice(1).filter(r => r.text);
+                if (replies.length) {
+                  const replyText = replies.map(r => `  ↳ ${r.text}`).join("\n");
+                  mergedText = `${m.text}\n${replyText}`;
+                }
+              }
+            } catch { /* non-fatal */ }
+          }
+
           allMsgs.push({
             channel: ch.name,
-            text: m.text,
+            text: mergedText,
             ts: m.ts,
+            reply_count: m.reply_count || 0,
             date: new Date(parseFloat(m.ts) * 1000)
               .toLocaleDateString("en-US", { month: "short", day: "numeric" })
           });
-        }
+        }));
       } catch (e) {
         console.warn(`Channel ${ch.name} fetch failed:`, e.message);
       }
     }));
 
-    // Sort newest first, cap at 8 so Claude sees more context but stays fast
+    // Sort newest first, cap at 12 so Claude sees more context across 14 business days
     allMsgs.sort((a, b) => parseFloat(b.ts) - parseFloat(a.ts));
-    if (allMsgs.length) messagesByCompany[companyKey] = allMsgs.slice(0, 8);
+    if (allMsgs.length) messagesByCompany[companyKey] = allMsgs.slice(0, 12);
   }));
 
   return messagesByCompany;
