@@ -70,7 +70,7 @@
   .row-card:hover{border-color:rgba(79,7,81,0.25);box-shadow:0 3px 12px rgba(79,7,81,0.1);}
   @keyframes ri{to{opacity:1}}
 
-  .row-main{display:grid;grid-template-columns:2fr 110px 80px 130px 175px 120px 130px 28px;align-items:center;gap:0;cursor:pointer;}
+  .row-main{display:grid;grid-template-columns:2fr 100px 90px 120px 145px 160px 120px 28px;align-items:center;gap:0;cursor:pointer;}
   .cell{padding:13px 16px;border-right:1px solid var(--border);}
   .cell:last-child{border-right:none;padding:13px 12px;}
 
@@ -248,8 +248,7 @@
     <button class="fb" onclick="filt('soon',this)">🚀 Launching Soon</button>
   </div>
   <select class="srt-sel" id="srt" onchange="render()">
-    <option value="health_a">Health ↑ (worst first)</option>
-    <option value="health_d">Health ↓ (best first)</option>
+    <option value="launch_change">Launch Change (recent first)</option>
     <option value="days_d">Days In ↓</option>
     <option value="days_a">Days In ↑</option>
     <option value="launch_a">Launch Date ↑</option>
@@ -928,8 +927,11 @@ function filtered(){
 function sorted(arr){
   const s=document.getElementById("srt").value;
   return[...arr].sort((a,b)=>{
-    if(s==="health_a")return(a.health_score??101)-(b.health_score??101);
-    if(s==="health_d")return(b.health_score??-1)-(a.health_score??-1);
+    if(s==="launch_change"){
+      const aT = a.launch_date_changed_at ? new Date(a.launch_date_changed_at).getTime() : 0;
+      const bT = b.launch_date_changed_at ? new Date(b.launch_date_changed_at).getTime() : 0;
+      return bT - aT;
+    }
     if(s==="days_d")return(parseInt(b.days_in_onboarding)||dSince(b.kickoff_date)||0)-(parseInt(a.days_in_onboarding)||dSince(a.kickoff_date)||0);
     if(s==="days_a")return(parseInt(a.days_in_onboarding)||dSince(a.kickoff_date)||0)-(parseInt(b.days_in_onboarding)||dSince(b.kickoff_date)||0);
     if(s==="launch_a")return new Date(a.current_target_launch_date||a.updated_target_launch_date||a.initial_target_launch_date||"9999")-new Date(b.current_target_launch_date||b.updated_target_launch_date||b.initial_target_launch_date||"9999");
@@ -949,6 +951,25 @@ function filt(f,btn){
 
 function toggle(id){
   document.getElementById("card-"+id).classList.toggle("open");
+}
+
+function renderLaunchChange(c){
+  // Shows whether the target launch date was moved, and which direction.
+  // Data comes from refresh.js (HubSpot property history on updated_target_launch_date).
+  if(!c.launch_date_change_type){
+    return `<span style="color:var(--muted);font-size:11px;font-style:italic;">No change</span>`;
+  }
+  const t = c.launch_date_change_type;
+  const prev = c.launch_date_previous_value ? fDate(c.launch_date_previous_value) : "—";
+  const when = c.launch_date_changed_at ? new Date(c.launch_date_changed_at).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "";
+  const iconColor = t === "pushed_back" ? "var(--danger)" : t === "moved_up" ? "var(--ok)" : "var(--muted)";
+  const icon = t === "pushed_back" ? "⬇" : t === "moved_up" ? "⬆" : "❌";
+  const label = t === "pushed_back" ? "Pushed back" : t === "moved_up" ? "Moved up" : "Removed";
+  return `
+    <div style="font-size:11px;line-height:1.3;">
+      <div style="color:${iconColor};font-weight:600;">${icon} ${label}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:1px;">from ${prev}${when?` · ${when}`:''}</div>
+    </div>`;
 }
 
 function notesHtml(notes){
@@ -1052,8 +1073,8 @@ function render(){
   if(!document.querySelector('.rows-header')){
     const hdr=document.createElement('div');
     hdr.className='rows-header';
-    hdr.style.cssText='display:grid;grid-template-columns:2fr 110px 80px 130px 175px 120px 130px 28px;padding:0 0 6px 0;';
-    const cols=["Practice","Mo. Revenue","Days In","Target Launch","Status","Progress","Manager",""];
+    hdr.style.cssText='display:grid;grid-template-columns:2fr 100px 90px 120px 145px 160px 120px 28px;padding:0 0 6px 0;';
+    const cols=["Practice","Mo. Revenue","Days In","Target Launch","Status","Launch Change","Manager",""];
     hdr.innerHTML=cols.map((c,i)=>`<div style="padding:0 16px;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.4px;font-weight:600;${i===2?'text-align:center':''}">${c}</div>`).join("");
     wrap.before(hdr);
   }
@@ -1114,20 +1135,6 @@ function render(){
             <div>
               <div class="pname" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span>${display}</span>
-                ${typeof c.health_score === "number" ? `
-                  <span title="AI Health Score · ${c.health_score}/100 — ${escapeHtml(c.health_reasoning||'')}" class="health-badge" style="
-                    display:inline-flex;align-items:center;gap:5px;
-                    padding:3px 10px 3px 7px;border-radius:14px;
-                    font-size:12px;font-weight:700;font-family:'DM Sans',sans-serif;
-                    background:${c.health_color==='green'?'rgba(46,138,106,.12)':c.health_color==='yellow'?'rgba(140,101,32,.12)':'rgba(184,85,85,.12)'};
-                    color:${c.health_color==='green'?'var(--ok)':c.health_color==='yellow'?'var(--warn)':'var(--danger)'};
-                    border:1.5px solid ${c.health_color==='green'?'rgba(46,138,106,.4)':c.health_color==='yellow'?'rgba(140,101,32,.4)':'rgba(184,85,85,.4)'};
-                    box-shadow:0 1px 3px ${c.health_color==='green'?'rgba(46,138,106,.15)':c.health_color==='yellow'?'rgba(140,101,32,.15)':'rgba(184,85,85,.15)'};
-                  ">
-                    <span style="font-size:14px;line-height:1;">${c.health_color==='green'?'💚':c.health_color==='yellow'?'💛':'❤️'}</span>
-                    <span>${c.health_score}</span>
-                  </span>
-                ` : ''}
                 ${isNew?'<span class="new-badge">NEW</span>':''}
                 ${noteRisk?'<span style="color:var(--danger);font-size:11px">⚠</span>':hasNote?'<span style="color:var(--muted);font-size:10px">💬</span>':''}
               </div>
@@ -1141,7 +1148,6 @@ function render(){
                 }
               </div>
               ${c.delayed_reason?`<div title="${escapeHtml(c.delayed_reason)}" style="font-size:10px;color:var(--danger);background:rgba(184,85,85,.08);border:1px solid rgba(184,85,85,.2);padding:2px 7px;border-radius:4px;margin-top:4px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><strong>⚠ Delayed:</strong> ${escapeHtml(c.delayed_reason)}</div>`:''}
-              ${c.pre_onboarding_reason?`<div title="${escapeHtml(c.pre_onboarding_reason)}" style="font-size:10px;color:var(--warn);background:rgba(140,101,32,.08);border:1px solid rgba(140,101,32,.2);padding:2px 7px;border-radius:4px;margin-top:4px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><strong>⏸ Delayed Kickoff:</strong> ${escapeHtml(c.pre_onboarding_reason)}</div>`:''}
             </div>
           </div>
         </div>
@@ -1162,10 +1168,7 @@ function render(){
           ${c.moxie_onboarding_status_override?'<div style="font-size:8px;color:var(--muted);margin-top:2px;">edited</div>':''}
         </div>
         <div class="cell">
-          <div class="pg-wrap">
-            <div class="pg-bar"><div class="pg-fill" style="width:${pr}%;background:${pcol}"></div></div>
-            <span class="pg-pct">${pr}%</span>
-          </div>
+          ${renderLaunchChange(c)}
         </div>
         <div class="cell">
           ${own?`<span class="mgr"><span class="md" style="background:${own.col}"></span>${own.name}</span>`:`<span style="color:var(--muted)">—</span>`}
@@ -1185,13 +1188,7 @@ function render(){
             ${rev?`<div><div class="di-lbl">Monthly Revenue (L3M)</div><div class="di-val" style="color:var(--ok)">${rev}</div></div>`:''}
             ${c.days_to_close?`<div><div class="di-lbl">Days to Close</div><div class="di-val">${c.days_to_close}d</div></div>`:''}
           </div>
-          ${typeof c.health_score === "number" ? `
-            <div style="margin-top:12px;padding:10px 12px;background:${c.health_color==='green'?'rgba(46,138,106,.06)':c.health_color==='yellow'?'rgba(140,101,32,.06)':'rgba(184,85,85,.06)'};border-left:3px solid ${c.health_color==='green'?'var(--ok)':c.health_color==='yellow'?'var(--warn)':'var(--danger)'};border-radius:4px;">
-              <div class="di-lbl" style="color:${c.health_color==='green'?'var(--ok)':c.health_color==='yellow'?'var(--warn)':'var(--danger)'};">🤖 AI Health Score · ${c.health_score}/100</div>
-              <div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.5;">${escapeHtml(c.health_reasoning || '')}</div>
-            </div>` : ''}
           ${c.delayed_reason?`<div style="margin-top:12px;padding:10px 12px;background:rgba(184,85,85,.06);border-left:3px solid var(--danger);border-radius:4px;"><div class="di-lbl" style="color:var(--danger);">⚠ Delayed Reason</div><div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.5;">${escapeHtml(c.delayed_reason)}</div></div>`:''}
-          ${c.pre_onboarding_reason?`<div style="margin-top:10px;padding:10px 12px;background:rgba(140,101,32,.06);border-left:3px solid var(--warn);border-radius:4px;"><div class="di-lbl" style="color:var(--warn);">⏸ Delayed Kickoff Reason</div><div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.5;">${escapeHtml(c.pre_onboarding_reason)}</div></div>`:''}
           ${c.kickoff_date&&ld?`
           <div class="tl-wrap">
             <div class="tl-hdr">
