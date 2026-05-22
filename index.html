@@ -210,8 +210,11 @@
     <div class="seg-badge">Enterprise · Onboarding</div>
     <div class="live-dot"></div>
     <span class="sync-lbl" id="sync-lbl">Loading…</span>
-    <button class="refresh-btn" id="refresh-btn" onclick="loadAll()">
-      <span class="spin-icon" id="refresh-icon">↻</span> Refresh
+    <button class="refresh-btn" id="refresh-btn" onclick="loadAll('hubspot')" title="Pull latest HubSpot data only (~10s, fast)">
+      <span class="spin-icon" id="refresh-icon">↻</span> Refresh HubSpot
+    </button>
+    <button class="refresh-btn" id="slack-ai-btn" onclick="loadAll('full')" title="Run full Slack pull + AI analysis + health scoring (~30s, slower)" style="background:var(--plum);color:#FBF5FF;border-color:var(--plum);">
+      <span class="spin-icon" id="slack-ai-icon">🤖</span> Pull Slack + AI
     </button>
   </div>
 </header>
@@ -1264,12 +1267,18 @@ function clearDashboardKey(){
 }
 
 // ── Refresh: pulls live HubSpot + Slack data via /api/refresh ──
-async function loadAll(){
-  const btn=document.getElementById("refresh-btn");
-  const icon=document.getElementById("refresh-icon");
-  const overlay=document.getElementById("loading-overlay");
-  const sub=document.getElementById("loading-sub");
-  const txt=document.getElementById("loading-text");
+// mode: "hubspot" = HubSpot only (~10s), "full" = HubSpot + Slack + AI (~30s)
+async function loadAll(mode){
+  mode = mode || "full";
+  const refreshBtn = document.getElementById("refresh-btn");
+  const refreshIcon = document.getElementById("refresh-icon");
+  const slackBtn = document.getElementById("slack-ai-btn");
+  const slackIcon = document.getElementById("slack-ai-icon");
+  const overlay = document.getElementById("loading-overlay");
+  const sub = document.getElementById("loading-sub");
+  const txt = document.getElementById("loading-text");
+  const activeBtn = mode === "hubspot" ? refreshBtn : slackBtn;
+  const activeIcon = mode === "hubspot" ? refreshIcon : slackIcon;
 
   const key = getDashboardKey();
   if(!key){
@@ -1277,17 +1286,19 @@ async function loadAll(){
     return;
   }
 
-  btn.disabled=true;
-  icon.classList.add("spinning");
+  refreshBtn.disabled = true;
+  slackBtn.disabled = true;
+  activeIcon.classList.add("spinning");
   overlay.classList.remove("hidden");
-  txt.textContent="Syncing with HubSpot + Slack";
-  sub.textContent="Calling /api/refresh… (this can take 20-30s)";
+  txt.textContent = mode === "hubspot" ? "Refreshing HubSpot data" : "Pulling Slack + running AI analysis";
+  sub.textContent = mode === "hubspot" ? "~10 seconds" : "~30 seconds — categorizing messages, scoring health";
   document.getElementById("sync-lbl").textContent="Syncing…";
 
   lastLoadedIds=new Set(data.map(c=>String(c.hs_object_id)));
 
   try {
-    const res = await fetch("/api/refresh", {
+    const url = mode === "hubspot" ? "/api/refresh?mode=hubspot" : "/api/refresh";
+    const res = await fetch(url, {
       headers: { "x-dashboard-key": key }
     });
     if(res.status === 401){
@@ -1308,8 +1319,9 @@ async function loadAll(){
     document.getElementById("sync-lbl").textContent = e.message || "Refresh failed";
     alert(e.message || "Refresh failed");
   } finally {
-    btn.disabled=false;
-    icon.classList.remove("spinning");
+    refreshBtn.disabled = false;
+    slackBtn.disabled = false;
+    activeIcon.classList.remove("spinning");
     overlay.classList.add("hidden");
   }
 
