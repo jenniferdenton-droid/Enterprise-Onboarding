@@ -857,7 +857,7 @@ function filtered(){
   const q=(document.getElementById("srch").value||"").toLowerCase();
   return lifecycleScoped().filter(c=>{
     const mox=(c.moxie_onboarding_status||"").toLowerCase();
-    const dl=dUntil(c.updated_target_launch_date||c.initial_target_launch_date);
+    const dl=dUntil(c.current_target_launch_date||c.updated_target_launch_date||c.initial_target_launch_date);
     const hasNotes=getNotesFor(c.name).length>0;
     const ok=
       curFilt==="all"     ? true :
@@ -873,7 +873,7 @@ function sorted(arr){
   return[...arr].sort((a,b)=>{
     if(s==="days_d")return(parseInt(b.days_in_onboarding)||dSince(b.kickoff_date)||0)-(parseInt(a.days_in_onboarding)||dSince(a.kickoff_date)||0);
     if(s==="days_a")return(parseInt(a.days_in_onboarding)||dSince(a.kickoff_date)||0)-(parseInt(b.days_in_onboarding)||dSince(b.kickoff_date)||0);
-    if(s==="launch_a")return new Date(a.updated_target_launch_date||a.initial_target_launch_date||"9999")-new Date(b.updated_target_launch_date||b.initial_target_launch_date||"9999");
+    if(s==="launch_a")return new Date(a.current_target_launch_date||a.updated_target_launch_date||a.initial_target_launch_date||"9999")-new Date(b.current_target_launch_date||b.updated_target_launch_date||b.initial_target_launch_date||"9999");
     if(s==="rev_d")return(parseFloat(b.monthly_revenue)||0)-(parseFloat(a.monthly_revenue)||0);
     if(s==="name_a")return(a.name||"").localeCompare(b.name||"");
     if(s==="mgr")return(a.onboarding_manager||"").localeCompare(b.onboarding_manager||"");
@@ -929,7 +929,7 @@ function render(){
     const num     =(c.name||"").match(/-\s*(\d+)$/)?.[1]||"";
     const display =(c.name||"").replace(/-\s*\d+$/,"").trim();
     const days    =parseInt(c.days_in_onboarding)||dSince(c.kickoff_date);
-    const ld      =c.updated_target_launch_date||c.initial_target_launch_date;
+    const ld      =c.current_target_launch_date||c.updated_target_launch_date||c.initial_target_launch_date;
     const dl      =dUntil(ld);
     // Status: override (Firestore) wins over HubSpot moxie_onboarding_status
     const effStatus = c.moxie_onboarding_status_override || c.moxie_onboarding_status || "";
@@ -984,6 +984,8 @@ function render(){
                   : `<button onclick="event.stopPropagation();chOpenModal('${c.hs_object_id}','${escapeJs(display)}')" title="Set up Slack channel" style="font-size:10px;font-weight:600;color:var(--danger);background:rgba(184,85,85,0.08);border:1px solid rgba(184,85,85,0.25);padding:1px 7px;border-radius:10px;cursor:pointer;font-family:'DM Sans',sans-serif;">＋ Channel</button>`
                 }
               </div>
+              ${c.delayed_reason?`<div title="${escapeHtml(c.delayed_reason)}" style="font-size:10px;color:var(--danger);background:rgba(184,85,85,.08);border:1px solid rgba(184,85,85,.2);padding:2px 7px;border-radius:4px;margin-top:4px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><strong>⚠ Delayed:</strong> ${escapeHtml(c.delayed_reason)}</div>`:''}
+              ${c.pre_onboarding_reason?`<div title="${escapeHtml(c.pre_onboarding_reason)}" style="font-size:10px;color:var(--warn);background:rgba(140,101,32,.08);border:1px solid rgba(140,101,32,.2);padding:2px 7px;border-radius:4px;margin-top:4px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><strong>⏸ Delayed Kickoff:</strong> ${escapeHtml(c.pre_onboarding_reason)}</div>`:''}
             </div>
           </div>
         </div>
@@ -1024,8 +1026,11 @@ function render(){
             <div><div class="di-lbl">Onboarding Manager</div><div class="di-val">${own?escapeHtml(own.name):"—"}</div></div>
             <div><div class="di-lbl">Practice Success Manager</div><div class="di-val">${psmName?escapeHtml(psmName):"—"}</div></div>
             ${c.city?`<div><div class="di-lbl">Location</div><div class="di-val">${c.city}${stateStr?', '+stateStr:''}</div></div>`:''}
-            ${rev?`<div><div class="di-lbl">Monthly Revenue</div><div class="di-val" style="color:var(--ok)">${rev}</div></div>`:''}
+            ${rev?`<div><div class="di-lbl">Monthly Revenue (L3M)</div><div class="di-val" style="color:var(--ok)">${rev}</div></div>`:''}
+            ${c.days_to_close?`<div><div class="di-lbl">Days to Close</div><div class="di-val">${c.days_to_close}d</div></div>`:''}
           </div>
+          ${c.delayed_reason?`<div style="margin-top:12px;padding:10px 12px;background:rgba(184,85,85,.06);border-left:3px solid var(--danger);border-radius:4px;"><div class="di-lbl" style="color:var(--danger);">⚠ Delayed Reason</div><div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.5;">${escapeHtml(c.delayed_reason)}</div></div>`:''}
+          ${c.pre_onboarding_reason?`<div style="margin-top:10px;padding:10px 12px;background:rgba(140,101,32,.06);border-left:3px solid var(--warn);border-radius:4px;"><div class="di-lbl" style="color:var(--warn);">⏸ Delayed Kickoff Reason</div><div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.5;">${escapeHtml(c.pre_onboarding_reason)}</div></div>`:''}
           ${c.kickoff_date&&ld?`
           <div class="tl-wrap">
             <div class="tl-hdr">
@@ -1054,7 +1059,7 @@ function summary(){
   const scoped=lifecycleScoped();
   const delayed=scoped.filter(c=>(c.moxie_onboarding_status||"").toLowerCase().includes("delayed"));
   const soon=scoped.filter(c=>{
-    const dl=dUntil(c.updated_target_launch_date||c.initial_target_launch_date);
+    const dl=dUntil(c.current_target_launch_date||c.updated_target_launch_date||c.initial_target_launch_date);
     return dl!==null&&dl>=0&&dl<=30;
   });
   const dArr=scoped.map(c=>parseInt(c.days_in_onboarding)||dSince(c.kickoff_date)).filter(d=>d!==null&&d>0);
