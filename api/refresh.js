@@ -253,7 +253,8 @@ export default async function handler(req, res) {
         hubspot_lifecycle_label_to_value: fetchHubSpotCompanies._stageMap || {},
         hubspot_allowed_stage_values: fetchHubSpotCompanies._allowedStageValues || [],
         owner_resolve: ownerResolveResult,
-        health_score_result: handler._lastHealthResult || { ok: false, reason: "skipped (hubspot-only mode)" }
+        health_score_result: handler._lastHealthResult || { ok: false, reason: "skipped (hubspot-only mode)" },
+        deal_revenue_result: enrichWithDealRevenue._lastResult || { ok: false, reason: "not yet run" }
       }
     };
 
@@ -319,6 +320,7 @@ async function fetchHubSpotCompanies(token) {
   // Properties to pull. These match Moxie's HubSpot internal names exactly.
   const REQUESTED_PROPS = [
     "name", "state", "city",
+    "medspa_id",                            // Moxie internal medspa id — joins to Deal.medspa_id__sync_
     "provider_segment_pre_launch",
     "provider_segment__post_launch_",
     "lifecyclestage",
@@ -426,6 +428,7 @@ async function fetchHubSpotCompanies(token) {
     const target = p.updated_target_launch_date || p.current_target_launch_date;
     return {
       hs_object_id: row.id,
+      medspa_id: p.medspa_id || null,
       name: p.name || null,
       state: p.state || null,
       city: p.city || null,
@@ -457,33 +460,91 @@ async function fetchHubSpotCompanies(token) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Deal revenue enrichment — Moxie tracks monthly_medspa_revenue on the Deal,
-// not the Company. We join via company→deal association.
+// Deal revenue enrichment — Moxie joins Deal→Company via custom field
+//   Deal.medspa_id__sync_  ==  Company.medspa_id
+// We use a single batched HubSpot search instead of N association calls.
 // ────────────────────────────────────────────────────────────────────────────
 
 async function enrichWithDealRevenue(companies, token) {
-  await Promise.all(companies.map(async (c) => {
-    try {
-      const a = await fetch(
-        `https://api.hubapi.com/crm/v4/objects/companies/${c.hs_object_id}/associations/deals`,
-        { headers: { "Authorization": `Bearer ${token}` } }
-      );
-      if (!a.ok) return;
-      const assoc = await a.json();
-      const dealIds = (assoc.results || []).map(r => r.toObjectId).filter(Boolean);
-      if (!dealIds.length) return;
+  // Build map of medspa_id → company object so we can route results back
+  const medspaToCompany = {};
+  const medspaIds = [];
+  for (const c of companies) {
+    if (c.medspa_id) {
+      const id = String(c.medspa_id);
+      medspaToCompany[id] = c;
+      medspaIds.push(id);
+    }
+  }
+  if (!medspaIds.length) {
+    enrichWithDealRevenue._lastResult = { ok: true, matched: 0, reason: "no companies have medspa_id" };
+    return;
+  }
 
-      // Pull monthly_medspa_revenue from the first associated deal
-      const d = await fetch(
-        `https://api.hubapi.com/crm/v3/objects/deals/${dealIds[0]}?properties=monthly_medspa_revenue,dealname,dealstage`,
-        { headers: { "Authorization": `Bearer ${token}` } }
-      );
-      if (!d.ok) return;
-      const deal = await d.json();
-      const rev = parseFloat(deal.properties?.monthly_medspa_revenue);
-      if (!isNaN(rev) && rev > 0) c.monthly_revenue = rev;
-    } catch (e) { /* non-fatal */ }
-  }));
+  // HubSpot search caps `values` at 100 — chunk if more
+  const chunks = [];
+  for (let i = 0; i < medspaIds.length; i += 100) {
+    chunks.push(medspaIds.slice(i, i + 100));
+  }
+
+  let matched = 0;
+  let dealCount = 0;
+  let lastError = null;
+
+  for (const chunk of chunks) {
+    try {
+      // Paginate through deals matching this batch of medspa_ids
+      let after = undefined;
+      do {
+        const r = await fetch("https://api.hubapi.com/crm/v3/objects/deals/search", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filterGroups: [{
+              filters: [
+                { propertyName: "medspa_id__sync_", operator: "IN", values: chunk }
+              ]
+            }],
+            properties: ["medspa_id__sync_", "monthly_medspa_revenue", "dealname", "dealstage", "createdate"],
+            sorts: [{ propertyName: "createdate", direction: "DESCENDING" }],
+            limit: 100,
+            after
+          })
+        });
+        if (!r.ok) {
+          lastError = `${r.status}: ${await r.text()}`;
+          console.warn(`Deal revenue search failed: ${lastError}`);
+          break;
+        }
+        const data = await r.json();
+        for (const deal of (data.results || [])) {
+          dealCount++;
+          const id = String(deal.properties?.medspa_id__sync_ || "");
+          const rev = parseFloat(deal.properties?.monthly_medspa_revenue);
+          if (!id || isNaN(rev) || rev <= 0) continue;
+          const c = medspaToCompany[id];
+          if (!c) continue;
+          // If the company already has a revenue (from an earlier deal), keep the higher one
+          if (!c.monthly_revenue || rev > c.monthly_revenue) {
+            c.monthly_revenue = rev;
+            matched++;
+          }
+        }
+        after = data.paging?.next?.after;
+      } while (after);
+    } catch (e) {
+      lastError = e.message;
+      console.warn("Deal revenue enrichment error:", e.message);
+    }
+  }
+
+  enrichWithDealRevenue._lastResult = {
+    ok: !lastError,
+    companies_with_medspa_id: medspaIds.length,
+    deals_returned: dealCount,
+    matched,
+    error: lastError
+  };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
