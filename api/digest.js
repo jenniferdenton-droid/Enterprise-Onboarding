@@ -1,30 +1,27 @@
 // ────────────────────────────────────────────────────────────────────────────
-// /api/digest — Email a blocker/risk digest from the latest Firestore snapshot
+// /api/digest — Weekly digest: Onboarding + Pre-launch + Post-launch
 // ────────────────────────────────────────────────────────────────────────────
 // Usage:
-//   GET /api/digest                 → uses DIGEST_TO_EMAILS env var
-//   GET /api/digest?to=foo@bar.com  → override recipient (?to=a@b.com,c@d.com)
-//   GET /api/digest?dry=1           → render the HTML in-browser, do NOT send
+//   GET /api/digest                 → triggers refresh first, then sends to DIGEST_TO_EMAILS + Firestore recipients
+//   GET /api/digest?to=a@b.com      → override recipient
+//   GET /api/digest?dry=1           → render HTML in-browser, do NOT send
+//   GET /api/digest?skip_refresh=1  → skip the pre-send refresh (use existing cache)
 //
-// Required env vars:
+// Sections, in order: Onboarding → Pre-launch → Post-launch
+// Each row: current target launch, GMV at risk, launch date change flag, blockers/risks summary.
+//
+// Env vars:
 //   FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY
 //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
 //   GMAIL_FROM_EMAIL
 //   DIGEST_TO_EMAILS   — comma list of default recipients
-//
-// Optional:
-//   DASHBOARD_PASSWORD
-//
-// Schedule it: add a Vercel Cron Job to hit /api/digest every Monday 8am.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { readSnapshot, listRecipients } from "../lib/firebase.js";
 import { sendEmail } from "../lib/gmail.js";
 
 export default async function handler(req, res) {
-  // Same auth pattern as /api/refresh. See refresh.js for the full explainer.
-  // Short version: validate the Bearer/header IF they're present, but don't
-  // require them. Vercel Authentication gates the URL for humans.
+  // Lenient auth — see refresh.js for the full pattern
   const bearer = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "");
   if (bearer && process.env.CRON_SECRET && bearer !== process.env.CRON_SECRET) {
     return res.status(401).json({ error: "unauthorized (bad bearer)" });
@@ -37,23 +34,35 @@ export default async function handler(req, res) {
   }
 
   try {
-    const snap = await readSnapshot();
-    if (!snap) {
-      return res.status(404).json({ error: "no cached snapshot — hit /api/refresh first" });
+    // STEP 1: Optionally trigger a fresh /api/refresh before reading snapshot.
+    // This ensures the digest reflects the latest Slack + AI analysis.
+    const skipRefresh = req.query?.skip_refresh === "1" || req.query?.dry === "1";
+    if (!skipRefresh) {
+      try {
+        const refreshUrl = `https://${req.headers["x-forwarded-host"] || req.headers["host"]}/api/refresh`;
+        const r = await fetch(refreshUrl, {
+          headers: process.env.CRON_SECRET ? { "Authorization": `Bearer ${process.env.CRON_SECRET}` } : {}
+        });
+        if (!r.ok) console.warn(`Pre-digest refresh returned ${r.status}`);
+      } catch (e) {
+        console.warn("Pre-digest refresh failed:", e.message);
+      }
     }
 
-    const { html, summary } = buildDigestHtml(snap);
-    const dry = req.query?.dry === "1";
+    // STEP 2: Read snapshot
+    const snap = await readSnapshot();
+    if (!snap) return res.status(404).json({ error: "no snapshot — hit /api/refresh first" });
 
-    if (dry) {
+    // STEP 3: Build digest HTML
+    const { html, summary } = buildDigestHtml(snap);
+
+    // Dry run — return HTML for preview
+    if (req.query?.dry === "1") {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.status(200).send(html);
     }
 
-    // Recipient resolution order:
-    //   1. ?to=foo@bar.com  (explicit override on the request)
-    //   2. Firestore digest_recipients (active only) — managed from the dashboard
-    //   3. DIGEST_TO_EMAILS env var (fallback for initial setup / disaster recovery)
+    // STEP 4: Resolve recipients
     const toParam = req.query?.to;
     let recipients = [];
     let source = "none";
@@ -67,7 +76,7 @@ export default async function handler(req, res) {
         recipients = list.filter(r => r.active !== false && r.email).map(r => r.email);
         source = "firestore";
       } catch (e) {
-        console.warn("recipient read failed, falling back to env:", e.message);
+        console.warn("recipient read failed:", e.message);
       }
       if (!recipients.length) {
         recipients = (process.env.DIGEST_TO_EMAILS || "").split(",").map(s => s.trim()).filter(Boolean);
@@ -76,15 +85,21 @@ export default async function handler(req, res) {
     }
 
     if (!recipients.length) {
-      return res.status(400).json({
-        error: "no recipients — add some via /api/recipients (or the dashboard panel), or set DIGEST_TO_EMAILS, or pass ?to=..."
-      });
+      return res.status(400).json({ error: "no recipients — add some via the dashboard panel or DIGEST_TO_EMAILS" });
     }
 
-    const subject = `Moxie Enterprise Onboarding · ${summary.blockerCount} blockers, ${summary.riskCount} risks`;
+    // STEP 5: Send (subject is plain ASCII to avoid encoding issues)
+    const subject = `Moxie Enterprise Onboarding and Pre-launch Weekly Update - ${summary.dateLabel}`;
     const sent = await sendEmail({ to: recipients, subject, html });
 
-    return res.status(200).json({ ok: true, sent_to: recipients, recipient_source: source, ...summary, message_id: sent.id });
+    return res.status(200).json({
+      ok: true,
+      sent_to: recipients,
+      recipient_source: source,
+      subject,
+      ...summary,
+      message_id: sent.id
+    });
   } catch (e) {
     console.error("digest error:", e);
     return res.status(500).json({ error: e.message || "digest failed" });
@@ -92,75 +107,80 @@ export default async function handler(req, res) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Render the digest HTML from a cached snapshot
+// Build the digest HTML
 // ────────────────────────────────────────────────────────────────────────────
 
 function buildDigestHtml(snap) {
   const { companies = [], notes = {}, synced_at } = snap;
-  const companyByKey = {};
-  for (const c of companies) {
-    const key = (c.name || "").toLowerCase().split(/\s+/)[0];
-    companyByKey[key] = c;
-  }
 
-  const rows = [];
-  let blockerCount = 0;
-  let riskCount = 0;
+  // Skip archived accounts
+  const active = companies.filter(c => !c.archived_at);
 
-  for (const [key, items] of Object.entries(notes)) {
-    for (const item of items) {
-      if (item.type === "blocker") blockerCount++;
-      else if (item.type === "risk") riskCount++;
-      const c = companyByKey[key] || findCompanyLoosely(companies, key);
-      rows.push({ key, name: c?.name || key, type: item.type, date: item.date, text: item.text, company: c });
+  // Bucket by lifecycle stage
+  const onboarding   = active.filter(c => (c.lifecyclestage || "").toLowerCase() === "onboarding");
+  const preLaunch    = active.filter(c => (c.lifecyclestage || "").toLowerCase() === "pre-launch");
+  const postLaunch   = active.filter(c => (c.lifecyclestage || "").toLowerCase() === "post-launch customer");
+
+  // Aggregate metrics
+  let blockerCount = 0, riskCount = 0;
+  let gmvAtRisk = 0;
+  let launchChangeCount = 0;
+
+  // Walk every account to count
+  for (const c of active) {
+    const key = getCompanyKey(c.name);
+    const accountNotes = notes[key] || [];
+    for (const n of accountNotes) {
+      if (n.type === "blocker") blockerCount++;
+      if (n.type === "risk") riskCount++;
     }
+    // Manual notes count too
+    for (const n of (c.manual_notes || [])) {
+      if (n.type === "blocker") blockerCount++;
+      if (n.type === "risk") riskCount++;
+    }
+    // GMV at risk = monthly_revenue for delayed / blocked accounts
+    const status = (c.moxie_onboarding_status_override || c.moxie_onboarding_status || "").toLowerCase();
+    const hasBlockers = accountNotes.some(n => n.type === "blocker") || (c.manual_notes || []).some(n => n.type === "blocker");
+    const isAtRisk = status.includes("delayed") || status.includes("at risk") || status.includes("on hold") || !!c.delayed_reason || hasBlockers;
+    if (isAtRisk && c.monthly_revenue) gmvAtRisk += parseFloat(c.monthly_revenue) || 0;
+    // Launch date change count
+    if (c.launch_date_change_type) launchChangeCount++;
   }
 
-  // Sort blocker → risk → update, then date desc
-  const order = { blocker: 0, risk: 1, update: 2 };
-  rows.sort((a, b) => (order[a.type] - order[b.type]) || (b.date || "").localeCompare(a.date || ""));
-
-  const blockers = rows.filter(r => r.type === "blocker");
-  const risks    = rows.filter(r => r.type === "risk");
-  const updates  = rows.filter(r => r.type === "update").slice(0, 10);
-
-  const renderSection = (title, color, list) => {
-    if (!list.length) return "";
-    const items = list.map(r => `
-      <tr>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;vertical-align:top;">
-          <div style="font-weight:600;color:#1a1a1a;">${escapeHtml(r.name)}</div>
-          <div style="color:#666;font-size:12px;">${escapeHtml(r.date || "")}${r.company?.onboarding_status ? " · " + escapeHtml(r.company.onboarding_status) : ""}</div>
-        </td>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;color:#1a1a1a;font-size:14px;">
-          ${escapeHtml(r.text)}
-        </td>
-      </tr>
-    `).join("");
-    return `
-      <h2 style="font-size:16px;margin:24px 0 8px;color:${color};">${title} (${list.length})</h2>
-      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-family:-apple-system,Segoe UI,sans-serif;">
-        ${items}
-      </table>
-    `;
-  };
+  // Date label
+  const now = new Date();
+  const dateLabel = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   const html = `
 <!doctype html>
 <html><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:24px;background:#f8f7f4;font-family:-apple-system,Segoe UI,sans-serif;color:#1a1a1a;">
-  <div style="max-width:720px;margin:0 auto;background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
-    <div style="border-bottom:2px solid #4F0751;padding-bottom:12px;margin-bottom:16px;">
-      <div style="color:#4F0751;font-weight:700;font-size:20px;">Moxie · Enterprise Onboarding Digest</div>
-      <div style="color:#666;font-size:13px;margin-top:4px;">
-        ${companies.length} accounts · ${blockerCount} blockers · ${riskCount} risks · synced ${escapeHtml(synced_at || "")}
-      </div>
+<body style="margin:0;padding:24px;background:#f8f7f4;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1a1a;">
+  <div style="max-width:780px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+
+    <div style="border-bottom:2px solid #4F0751;padding-bottom:14px;margin-bottom:18px;">
+      <div style="color:#4F0751;font-weight:700;font-size:22px;line-height:1.2;">Moxie Enterprise Onboarding &amp; Pre-launch</div>
+      <div style="color:#666;font-size:13px;margin-top:6px;">Weekly Update &middot; ${escapeHtml(dateLabel)}</div>
     </div>
-    ${renderSection("🚨 Blockers", "#b00020", blockers)}
-    ${renderSection("⚠️ Risks", "#9a6f00", risks)}
-    ${renderSection("📌 Recent Updates", "#5eb89e", updates)}
-    <div style="margin-top:24px;color:#999;font-size:12px;border-top:1px solid #eee;padding-top:12px;">
-      Generated by Moxie Onboarding Dashboard · <a href="https://moxie-onboarding-dashboard.vercel.app" style="color:#4F0751;">Open dashboard</a>
+
+    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:18px;">
+      <tr>
+        ${kpi("Active Accounts", `${active.length}`, "#4F0751")}
+        ${kpi("Blockers", `${blockerCount}`, "#b00020")}
+        ${kpi("Risks", `${riskCount}`, "#9a6f00")}
+        ${kpi("Launch Date Changes", `${launchChangeCount}`, "#9a6f00")}
+        ${kpi("GMV at Risk", fmtMoney(gmvAtRisk), "#b00020")}
+      </tr>
+    </table>
+
+    ${renderSection("Onboarding", onboarding, notes, "#4F0751")}
+    ${renderSection("Pre-launch", preLaunch, notes, "#AC8342")}
+    ${renderSection("Post-launch Customers", postLaunch, notes, "#5eb89e")}
+
+    <div style="margin-top:24px;color:#999;font-size:11px;border-top:1px solid #eee;padding-top:14px;line-height:1.5;">
+      Generated by Moxie Enterprise Onboarding Dashboard &middot;
+      <a href="https://enterprise-onboarding-woad.vercel.app" style="color:#4F0751;">Open dashboard</a>
+      &middot; Synced ${escapeHtml(synced_at || "")}
     </div>
   </div>
 </body></html>
@@ -169,17 +189,155 @@ function buildDigestHtml(snap) {
   return {
     html,
     summary: {
+      dateLabel,
       blockerCount,
       riskCount,
-      updateCount: updates.length,
-      companies: companies.length
+      launchChangeCount,
+      gmvAtRisk,
+      activeCount: active.length,
+      onboardingCount: onboarding.length,
+      preLaunchCount: preLaunch.length,
+      postLaunchCount: postLaunch.length
     }
   };
 }
 
-function findCompanyLoosely(companies, key) {
-  const k = (key || "").toLowerCase();
-  return companies.find(c => (c.name || "").toLowerCase().includes(k));
+// ────────────────────────────────────────────────────────────────────────────
+// Section / row renderers
+// ────────────────────────────────────────────────────────────────────────────
+
+function renderSection(title, accounts, notesByKey, color) {
+  if (!accounts.length) {
+    return `<h2 style="font-size:17px;margin:22px 0 10px;color:${color};">${title} (0)</h2>
+            <div style="color:#999;font-size:12px;font-style:italic;">No accounts in this stage.</div>`;
+  }
+
+  // Sort: launch date changes first, then by target launch ascending
+  accounts.sort((a, b) => {
+    if (a.launch_date_change_type && !b.launch_date_change_type) return -1;
+    if (!a.launch_date_change_type && b.launch_date_change_type) return 1;
+    const aT = a.updated_target_launch_date || a.current_target_launch_date || "9999";
+    const bT = b.updated_target_launch_date || b.current_target_launch_date || "9999";
+    return aT.localeCompare(bT);
+  });
+
+  const rows = accounts.map(c => renderAccountRow(c, notesByKey)).join("");
+
+  return `
+    <h2 style="font-size:17px;margin:22px 0 10px;color:${color};border-bottom:1px solid #eee;padding-bottom:6px;">
+      ${title} (${accounts.length})
+    </h2>
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-family:-apple-system,Segoe UI,sans-serif;">
+      ${rows}
+    </table>
+  `;
+}
+
+function renderAccountRow(c, notesByKey) {
+  const display = (c.name || "").replace(/-\s*\d+$/, "").trim();
+  const key = getCompanyKey(c.name);
+  const slackNotes = notesByKey[key] || [];
+  const blockers = slackNotes.filter(n => n.type === "blocker");
+  const risks    = slackNotes.filter(n => n.type === "risk");
+
+  // Launch date (with "Removed" handling)
+  const launchRemoved = c.launch_date_change_type === "removed";
+  const target = launchRemoved ? null : (c.updated_target_launch_date || c.current_target_launch_date || c.initial_target_launch_date);
+
+  // Launch change badge
+  let changeBadge = "";
+  if (c.launch_date_change_type) {
+    const t = c.launch_date_change_type;
+    const prev = c.launch_date_previous_value ? fmtDate(c.launch_date_previous_value) : "—";
+    const when = c.launch_date_changed_at ? fmtDate(c.launch_date_changed_at) : "";
+    const color = t === "pushed_back" ? "#b00020" : t === "moved_up" ? "#2e8a6a" : "#b00020";
+    const icon = t === "pushed_back" ? "⬇" : t === "moved_up" ? "⬆" : "❌";
+    const label = t === "pushed_back" ? "Pushed back" : t === "moved_up" ? "Moved up" : "Removed";
+    changeBadge = `<span style="display:inline-block;font-size:11px;font-weight:600;color:${color};background:${color}1a;padding:2px 8px;border-radius:10px;margin-left:8px;">${icon} ${label} from ${prev}${when?` on ${when}`:''}</span>`;
+  }
+
+  // Revenue
+  const rev = parseFloat(c.monthly_revenue);
+  const revStr = isNaN(rev) || rev === 0 ? "" : `<span style="color:#666;font-size:11px;margin-left:8px;">${fmtMoney(rev)}/mo</span>`;
+
+  // Target launch
+  const targetStr = launchRemoved
+    ? `<span style="color:#b00020;font-weight:600;">Removed</span>`
+    : target
+      ? fmtDate(target)
+      : `<span style="color:#999;font-style:italic;">No target</span>`;
+
+  // Manager
+  const om = c.onboarding_manager_name || "";
+  const psm = c.practice_success_manager_name || c.provider_success_manager_name || "";
+  const mgrLine = [om && `OM: ${om}`, psm && `PSM: ${psm}`].filter(Boolean).join(" &middot; ");
+
+  // Reasons
+  const reasons = [];
+  if (c.delayed_reason) reasons.push(`<strong>Delayed:</strong> ${escapeHtml(c.delayed_reason)}`);
+
+  // Slack note items (max 3 most important: blockers first, then risks)
+  const topItems = [...blockers, ...risks].slice(0, 3);
+  const noteList = topItems.map(n => `
+    <li style="font-size:12px;color:#1a1a1a;margin-bottom:4px;">
+      <span style="font-weight:600;color:${n.type === 'blocker' ? '#b00020' : '#9a6f00'};">${escapeHtml(n.type)}:</span>
+      ${escapeHtml(n.text)}
+      <span style="color:#999;font-size:10px;">(${escapeHtml(n.date || "")})</span>
+    </li>`).join("");
+
+  return `
+    <tr>
+      <td style="padding:12px 0;border-bottom:1px solid #eee;vertical-align:top;">
+        <div style="font-weight:600;font-size:14px;color:#1a1a1a;">
+          ${escapeHtml(display)} ${changeBadge}
+        </div>
+        <div style="color:#666;font-size:11px;margin-top:3px;">
+          Target Launch: <strong>${targetStr}</strong>${revStr}
+          ${mgrLine ? `<span style="display:block;margin-top:2px;">${mgrLine}</span>` : ''}
+        </div>
+        ${reasons.length ? `<div style="margin-top:6px;font-size:12px;color:#1a1a1a;">${reasons.join("<br>")}</div>` : ''}
+        ${topItems.length
+          ? `<ul style="margin:6px 0 0 18px;padding:0;">${noteList}</ul>`
+          : (blockers.length === 0 && risks.length === 0 ? '' : '')
+        }
+      </td>
+    </tr>
+  `;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────────────────────
+
+function kpi(label, value, color) {
+  return `
+    <td style="text-align:center;padding:14px 8px;background:${color}0d;border-radius:8px;width:20%;">
+      <div style="font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.6px;font-weight:600;">${label}</div>
+      <div style="font-size:22px;font-weight:700;color:${color};margin-top:4px;">${value}</div>
+    </td>
+  `;
+}
+
+function fmtDate(s) {
+  if (!s) return "—";
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return `${months[parseInt(m[2])-1]} ${parseInt(m[3])}, ${m[1]}`;
+  }
+  try { return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch { return s; }
+}
+
+function fmtMoney(n) {
+  const v = parseFloat(n);
+  if (isNaN(v) || v === 0) return "$0";
+  if (v >= 1000000) return `$${(v/1000000).toFixed(1)}M`;
+  if (v >= 1000) return `$${Math.round(v/1000)}k`;
+  return `$${Math.round(v)}`;
+}
+
+function getCompanyKey(name) {
+  return (name || "").toLowerCase().split(/\s+/)[0];
 }
 
 function escapeHtml(s) {
