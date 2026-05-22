@@ -102,10 +102,18 @@ export default async function handler(req, res) {
 
     // Mode controls how much of the pipeline runs:
     //   "hubspot"    = HubSpot pull only, no Slack, no AI (~10s)
-    //   "slack"      = HubSpot + Slack pull (raw messages), NO AI (~15-20s) — for fast data verification
+    //   "slack"      = HubSpot + Slack pull (raw messages), NO AI (~15-20s) — fast data verification
+    //   "ai"         = AI categorization ONLY for the given ?section= lifecycle stage (~10-15s)
+    //                  reads from last snapshot, runs AI on filtered accounts, merges back
     //   (default)    = full pipeline including Slack + AI categorization (~30-45s)
+    //
+    // Optional ?section= filters AI to one lifecycle stage:
+    //   "onboarding" | "pre-launch" | "post-launch customer"
+    //   When set, AI only runs on accounts in that stage; other stages keep their previous AI notes.
     const mode = (req.query?.mode || "").toLowerCase();
+    const section = (req.query?.section || "").toLowerCase().trim();
     const hubspotOnly = mode === "hubspot";
+    const aiOnly = mode === "ai";
     const skipAI = mode === "slack" || mode === "hubspot";
 
     // ── Step 2: Slack — discover channels the bot can read ──
@@ -190,7 +198,7 @@ export default async function handler(req, res) {
         }
       }
 
-      // PHASE 2: AI analysis on the raw messages (skipped if mode=slack)
+      // PHASE 2: AI analysis on the raw messages
       if (skipAI) {
         console.log(`Skipping AI categorization (mode=${mode}) — raw messages saved for review`);
         // Preserve existing AI notes from previous full-run cache if available
@@ -200,10 +208,36 @@ export default async function handler(req, res) {
           if (cached?.notes) notes = cached.notes;
         } catch (e) { /* non-fatal */ }
       } else if (Object.keys(messagesByCompany).length) {
+        // Build the set of messages we'll send to AI. If ?section= specified,
+        // only include accounts in that lifecycle stage — keeps each AI call short.
+        let messagesToAnalyze = messagesByCompany;
+        let priorNotes = {};
+
+        if (section) {
+          const sectionKeys = new Set(
+            companies
+              .filter(c => (c.lifecyclestage || "").toLowerCase().trim() === section)
+              .map(c => getCompanyKey(c.name))
+          );
+          messagesToAnalyze = Object.fromEntries(
+            Object.entries(messagesByCompany).filter(([k]) => sectionKeys.has(k))
+          );
+          // Load prior notes from other sections — we'll merge ours into them
+          try {
+            const { readSnapshot } = await import("../lib/firebase.js");
+            const cached = await readSnapshot();
+            if (cached?.notes) priorNotes = cached.notes;
+          } catch (e) { /* non-fatal */ }
+          console.log(`AI section=${section}: ${Object.keys(messagesToAnalyze).length} accounts to analyze`);
+        }
+
         const t5 = Date.now();
-        notes = await categorizeMessages(messagesByCompany, ANTHROPIC_API_KEY);
+        const newNotes = await categorizeMessages(messagesToAnalyze, ANTHROPIC_API_KEY);
         timing.claude_categorize_ms = Date.now() - t5;
         console.log(`Claude categorization (chunked parallel) took ${timing.claude_categorize_ms}ms`);
+
+        // Merge: section's new notes override prior section notes for those accounts
+        notes = section ? { ...priorNotes, ...newNotes } : newNotes;
       }
 
       // AI health score — DISABLED for now. The UI hides the badge (Leslie is
@@ -926,10 +960,31 @@ async function fetchAllChannelHistory(token, matches, businessDaysBack) {
       }
     }));
 
-    // Sort newest first. Cap at 25 messages per company so Claude has full
-    // context across the 14-business-day window (was 12 — too few for active channels).
+    // Sort newest first. Cap at 20 messages per company so Claude has solid
+    // context but doesn't blow the output token budget.
+    // Also filter out obvious noise BEFORE sending to AI.
     allMsgs.sort((a, b) => parseFloat(b.ts) - parseFloat(a.ts));
-    if (allMsgs.length) messagesByCompany[companyKey] = allMsgs.slice(0, 25);
+    const NOISE_PATTERNS = [
+      /^(thanks!?|thank you|ty|np|👍|ok|okay|got it|yes|no|sure|sounds good|will do|on it)$/i,
+      /^was added to /,
+      /^joined #/,
+      /^renamed the channel/,
+      /^made this channel/,
+      /^set the channel topic/,
+      /^set the channel purpose/
+    ];
+    const filtered = allMsgs.filter(m => {
+      const t = (m.text || "").trim();
+      if (t.length < 3) return false;
+      return !NOISE_PATTERNS.some(p => p.test(t));
+    });
+    if (filtered.length) {
+      // Trim each message to 500 chars to keep prompt size reasonable
+      messagesByCompany[companyKey] = filtered.slice(0, 20).map(m => ({
+        ...m,
+        text: (m.text || "").slice(0, 500)
+      }));
+    }
   }));
 
   return messagesByCompany;
@@ -944,12 +999,11 @@ async function categorizeMessages(messagesByCompany, apiKey) {
   if (!keys.length) return {};
 
   // CHUNKED PARALLEL CATEGORIZATION
-  // One single Claude call for 37 accounts × 15 categorized items hits the
-  // claude-haiku 8k-token output ceiling and gets truncated mid-response,
-  // which causes some accounts to lose their older messages.
-  // Solution: split into chunks of ~10 accounts, run 4 parallel Claude calls,
-  // each with plenty of token budget. Total wall time ≈ same as a single call.
-  const CHUNK_SIZE = 10;
+  // Each chunk handles 8 accounts. With 37 accounts total → 5 parallel Claude
+  // calls. Each chunk asks for up to 10 items × 8 accounts = 80 items max,
+  // which fits comfortably in claude-haiku's output budget without hitting
+  // rate-based timeout. Wall time ≈ slowest chunk (~15-20s).
+  const CHUNK_SIZE = 8;
   const chunks = [];
   for (let i = 0; i < keys.length; i += CHUNK_SIZE) {
     const chunk = {};
