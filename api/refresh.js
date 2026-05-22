@@ -89,8 +89,13 @@ export default async function handler(req, res) {
       ownerResolveResult = { ok: false, error: e.message };
     }
 
+    // Mode: "hubspot" = HubSpot pull only, skip Slack + AI (fast, ~10s).
+    //       Anything else (default) = full pipeline including Slack + AI (~30s).
+    const mode = (req.query?.mode || "").toLowerCase();
+    const hubspotOnly = mode === "hubspot";
+
     // ── Step 2: Slack — discover channels the bot can read ──
-    const channels = await listBotChannels(SLACK_BOT_TOKEN);
+    const channels = hubspotOnly ? [] : await listBotChannels(SLACK_BOT_TOKEN);
 
     // ── Step 2b: Pull persistent channel mappings + status overrides + archived from Firestore ──
     let savedMappings = {};
@@ -141,39 +146,85 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── Step 3: Map companies to their channels ──
-    // Saved mappings (Firestore) win over fuzzy auto-match
-    const matches = mapCompaniesToChannels(companies, channels, OVERRIDES, savedMappings);
-
-    // ── Step 4: Pull history from each matched channel (7 days, capped) ──
-    const t4 = Date.now();
-    const messagesByCompany = await fetchAllChannelHistory(SLACK_BOT_TOKEN, matches, 7);
-    console.log(`Slack history fetch took ${Date.now() - t4}ms for ${Object.keys(matches).length} accounts`);
-
-    // ── Step 5: Categorize via Claude ──
+    // ── Step 3-5: Slack + AI (skipped in hubspot-only mode) ──
+    let matches = {};
+    let messagesByCompany = {};
     let notes = {};
-    if (Object.keys(messagesByCompany).length) {
-      const t5 = Date.now();
-      notes = await categorizeMessages(messagesByCompany, ANTHROPIC_API_KEY);
-      console.log(`Claude categorization took ${Date.now() - t5}ms`);
-    }
 
-    // ── Step 5b: AI health score per account (single Claude call) ──
-    try {
-      const t5b = Date.now();
-      const scores = await computeHealthScores(companies, notes, ANTHROPIC_API_KEY);
-      for (const c of companies) {
-        const key = getCompanyKey(c.name);
-        const s = scores[c.hs_object_id] || scores[key];
-        if (s) {
-          c.health_score = s.score;
-          c.health_color = s.color;
-          c.health_reasoning = s.reasoning;
-        }
+    if (!hubspotOnly) {
+      // Map companies to their channels (saved mappings win over fuzzy auto-match)
+      matches = mapCompaniesToChannels(companies, channels, OVERRIDES, savedMappings);
+
+      // Pull history from each matched channel (7 days, capped)
+      const t4 = Date.now();
+      messagesByCompany = await fetchAllChannelHistory(SLACK_BOT_TOKEN, matches, 7);
+      console.log(`Slack history fetch took ${Date.now() - t4}ms for ${Object.keys(matches).length} accounts`);
+
+      // Categorize via Claude
+      if (Object.keys(messagesByCompany).length) {
+        const t5 = Date.now();
+        notes = await categorizeMessages(messagesByCompany, ANTHROPIC_API_KEY);
+        console.log(`Claude categorization took ${Date.now() - t5}ms`);
       }
-      console.log(`Health score took ${Date.now() - t5b}ms`);
-    } catch (e) {
-      console.warn("Health score failed:", e.message);
+
+      // AI health score per account
+      let healthResult = { ok: false, scored_count: 0 };
+      try {
+        const t5b = Date.now();
+        const scores = await computeHealthScores(companies, notes, ANTHROPIC_API_KEY);
+        let scoredCount = 0;
+        for (const c of companies) {
+          const key = getCompanyKey(c.name);
+          // Try ALL the possible key shapes Claude might use
+          const s = scores[c.hs_object_id]
+                 || scores[String(c.hs_object_id)]
+                 || scores[Number(c.hs_object_id)]
+                 || scores[key]
+                 || scores[(c.name || "").toLowerCase()]
+                 || scores[c.name];
+          if (s && typeof s.score === "number") {
+            c.health_score = s.score;
+            c.health_color = s.color || (s.score >= 75 ? "green" : s.score >= 40 ? "yellow" : "red");
+            c.health_reasoning = s.reasoning || "";
+            scoredCount++;
+          }
+        }
+        healthResult = {
+          ok: true,
+          scored_count: scoredCount,
+          response_keys_sample: Object.keys(scores).slice(0, 3),
+          duration_ms: Date.now() - t5b
+        };
+        console.log(`Health score scored ${scoredCount}/${companies.length} in ${Date.now() - t5b}ms`);
+      } catch (e) {
+        console.warn("Health score failed:", e.message);
+        healthResult = { ok: false, error: e.message };
+      }
+      // Stash for meta
+      handler._lastHealthResult = healthResult;
+    } else {
+      // In hubspot-only mode, preserve existing health scores + notes from cache
+      // so they don't disappear when only HubSpot data is refreshed.
+      try {
+        const { readSnapshot } = await import("../lib/firebase.js");
+        const cached = await readSnapshot();
+        if (cached?.companies) {
+          const byId = Object.fromEntries(cached.companies.map(c => [String(c.hs_object_id), c]));
+          for (const c of companies) {
+            const prev = byId[String(c.hs_object_id)];
+            if (prev) {
+              if (prev.health_score != null) {
+                c.health_score = prev.health_score;
+                c.health_color = prev.health_color;
+                c.health_reasoning = prev.health_reasoning;
+              }
+            }
+          }
+          if (cached.notes) notes = cached.notes;
+        }
+      } catch (e) {
+        console.warn("Cache read for HubSpot-only mode failed:", e.message);
+      }
     }
 
     const payload = {
@@ -181,6 +232,7 @@ export default async function handler(req, res) {
       notes,
       synced_at: new Date().toISOString(),
       meta: {
+        mode: hubspotOnly ? "hubspot" : "full",
         company_count: companies.length,
         channels_discovered: channels.length,
         accounts_with_channels: Object.keys(matches).length,
@@ -193,7 +245,8 @@ export default async function handler(req, res) {
         hubspot_lifecycles_seen: fetchHubSpotCompanies._lifecyclesSeen || {},
         hubspot_lifecycle_label_to_value: fetchHubSpotCompanies._stageMap || {},
         hubspot_allowed_stage_values: fetchHubSpotCompanies._allowedStageValues || [],
-        owner_resolve: ownerResolveResult
+        owner_resolve: ownerResolveResult,
+        health_score_result: handler._lastHealthResult || { ok: false, reason: "skipped (hubspot-only mode)" }
       }
     };
 
