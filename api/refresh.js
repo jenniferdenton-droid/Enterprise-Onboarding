@@ -76,8 +76,18 @@ export default async function handler(req, res) {
     const companies = await fetchHubSpotCompanies(HUBSPOT_TOKEN);
 
     // ── Step 1b: Resolve OM + PSM owner IDs to names (non-fatal) ──
-    try { await resolveOwners(companies, HUBSPOT_TOKEN); }
-    catch (e) { console.warn("owner resolve failed:", e.message); }
+    let ownerResolveResult = { ok: false, count: 0, error: null };
+    try {
+      const ownerMap = await resolveOwners(companies, HUBSPOT_TOKEN);
+      ownerResolveResult = {
+        ok: true,
+        owner_directory_size: Object.keys(ownerMap || {}).length,
+        sample_owner_ids: Object.keys(ownerMap || {}).slice(0, 5)
+      };
+    } catch (e) {
+      console.warn("owner resolve failed:", e.message);
+      ownerResolveResult = { ok: false, error: e.message };
+    }
 
     // ── Step 2: Slack — discover channels the bot can read ──
     const channels = await listBotChannels(SLACK_BOT_TOKEN);
@@ -113,13 +123,17 @@ export default async function handler(req, res) {
     // Saved mappings (Firestore) win over fuzzy auto-match
     const matches = mapCompaniesToChannels(companies, channels, OVERRIDES, savedMappings);
 
-    // ── Step 4: Pull history from each matched channel ──
-    const messagesByCompany = await fetchAllChannelHistory(SLACK_BOT_TOKEN, matches, 14);
+    // ── Step 4: Pull history from each matched channel (7 days, capped) ──
+    const t4 = Date.now();
+    const messagesByCompany = await fetchAllChannelHistory(SLACK_BOT_TOKEN, matches, 7);
+    console.log(`Slack history fetch took ${Date.now() - t4}ms for ${Object.keys(matches).length} accounts`);
 
     // ── Step 5: Categorize via Claude ──
     let notes = {};
     if (Object.keys(messagesByCompany).length) {
+      const t5 = Date.now();
       notes = await categorizeMessages(messagesByCompany, ANTHROPIC_API_KEY);
+      console.log(`Claude categorization took ${Date.now() - t5}ms`);
     }
 
     const payload = {
@@ -138,7 +152,8 @@ export default async function handler(req, res) {
         hubspot_companies_before_lifecycle_filter: fetchHubSpotCompanies._totalBeforeFilter || 0,
         hubspot_lifecycles_seen: fetchHubSpotCompanies._lifecyclesSeen || {},
         hubspot_lifecycle_label_to_value: fetchHubSpotCompanies._stageMap || {},
-        hubspot_allowed_stage_values: fetchHubSpotCompanies._allowedStageValues || []
+        hubspot_allowed_stage_values: fetchHubSpotCompanies._allowedStageValues || [],
+        owner_resolve: ownerResolveResult
       }
     };
 
@@ -171,7 +186,10 @@ async function fetchHubSpotCompanies(token) {
   // HubSpot search caps filterGroups at 5 and within a group filters are AND'd,
   // so we do TWO passes (one per segment field) and dedupe by hs_object_id.
   const segment = (process.env.HUBSPOT_SEGMENT || "Enterprise").trim();
-  const lifecycles = (process.env.HUBSPOT_LIFECYCLES || "pre-launch,onboarding,post-launch customer")
+  // Default scope: active accounts only (pre-launch + onboarding).
+  // Post-launch customers are completed and tracked elsewhere.
+  // Override via HUBSPOT_LIFECYCLES env var if needed.
+  const lifecycles = (process.env.HUBSPOT_LIFECYCLES || "pre-launch,onboarding")
     .split(",")
     .map(s => s.trim())
     .filter(Boolean);
@@ -417,8 +435,18 @@ async function fetchLifecycleStageMap(token) {
 }
 
 function dateOnly(s) {
-  if (!s) return null;
-  try { return new Date(s).toISOString().slice(0, 10); } catch { return s; }
+  if (s === null || s === undefined || s === "") return null;
+  let d;
+  // HubSpot returns datetime fields as ms-since-epoch (often as a numeric string)
+  // and date-only fields as "YYYY-MM-DD" strings. Detect numeric input and parse.
+  const str = String(s);
+  if (/^\d{10,}$/.test(str)) {
+    d = new Date(Number(str));
+  } else {
+    d = new Date(str);
+  }
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -524,8 +552,9 @@ async function fetchAllChannelHistory(token, matches, daysBack) {
     const allMsgs = [];
     await Promise.all(chs.map(async (ch) => {
       try {
+        // Cap at 50 messages per channel — plenty for 7-day window, much faster
         const r = await fetch(
-          `https://slack.com/api/conversations.history?channel=${ch.id}&oldest=${oldest}&limit=200`,
+          `https://slack.com/api/conversations.history?channel=${ch.id}&oldest=${oldest}&limit=50`,
           { headers: { "Authorization": `Bearer ${token}` } }
         );
         const data = await r.json();
@@ -549,9 +578,9 @@ async function fetchAllChannelHistory(token, matches, daysBack) {
       }
     }));
 
-    // Sort newest first, cap at 12 to keep Claude prompt manageable
+    // Sort newest first, cap at 5 to keep Claude prompt fast
     allMsgs.sort((a, b) => parseFloat(b.ts) - parseFloat(a.ts));
-    if (allMsgs.length) messagesByCompany[companyKey] = allMsgs.slice(0, 12);
+    if (allMsgs.length) messagesByCompany[companyKey] = allMsgs.slice(0, 5);
   }));
 
   return messagesByCompany;
@@ -600,8 +629,8 @@ ${JSON.stringify(promptInput, null, 2)}`;
       "anthropic-version": "2023-06-01"
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5",
-      max_tokens: 8000,
+      model: "claude-haiku-4-5",  // Fast + cheap — categorization doesn't need sonnet
+      max_tokens: 4000,
       messages: [{ role: "user", content: prompt }]
     })
   });
