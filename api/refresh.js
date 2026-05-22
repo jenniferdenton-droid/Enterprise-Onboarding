@@ -136,7 +136,9 @@ export default async function handler(req, res) {
           .map(ch => ch.name),
         hubspot_field_warnings: fetchHubSpotCompanies._lastFieldErrors || [],
         hubspot_companies_before_lifecycle_filter: fetchHubSpotCompanies._totalBeforeFilter || 0,
-        hubspot_lifecycles_seen: fetchHubSpotCompanies._lifecyclesSeen || {}
+        hubspot_lifecycles_seen: fetchHubSpotCompanies._lifecyclesSeen || {},
+        hubspot_lifecycle_label_to_value: fetchHubSpotCompanies._stageMap || {},
+        hubspot_allowed_stage_values: fetchHubSpotCompanies._allowedStageValues || []
       }
     };
 
@@ -182,6 +184,17 @@ async function fetchHubSpotCompanies(token) {
   const segmentFields = (process.env.HUBSPOT_SEGMENT_FIELDS
     || "provider_segment_pre_launch,provider_segment__post_launch_")
     .split(",").map(s => s.trim()).filter(Boolean);
+
+  // Resolve lifecycle stage LABELS → internal VALUES via HubSpot's properties API.
+  // Custom lifecycle stages are stored as numeric ids (e.g. "69092992"); built-in
+  // ones use the snake_case name ("evangelist"). The properties API gives us both.
+  const stageMap = await fetchLifecycleStageMap(token); // { "onboarding": "110575888", "pre-launch": "69092992", ... }
+  const allowedLabels = lifecycles.map(s => s.toLowerCase().trim());
+  const allowedStageValues = new Set(
+    allowedLabels.map(label => (stageMap[label] || label).toString().toLowerCase().trim())
+  );
+  fetchHubSpotCompanies._stageMap = stageMap;
+  fetchHubSpotCompanies._allowedStageValues = [...allowedStageValues];
 
   const rowsById = new Map();
   const fieldErrors = [];
@@ -257,11 +270,28 @@ async function fetchHubSpotCompanies(token) {
   fetchHubSpotCompanies._lifecyclesSeen = allLifecyclesSeen;
   fetchHubSpotCompanies._totalBeforeFilter = rowsById.size;
 
-  // Filter to allowed lifecycle stages in JS (case-insensitive)
-  const allowedStages = new Set(lifecycles.map(s => s.toLowerCase().trim()));
+  // Filter to allowed lifecycle stages — match the raw HubSpot value (which is
+  // a numeric id for custom stages, or a snake_case name for built-in stages)
+  // against our resolved set of allowed values.
   for (const [id, row] of [...rowsById.entries()]) {
-    const ls = (row.properties?.lifecyclestage || "").toLowerCase().trim();
-    if (!allowedStages.has(ls)) rowsById.delete(id);
+    const ls = (row.properties?.lifecyclestage || "").toString().toLowerCase().trim();
+    if (!allowedStageValues.has(ls)) rowsById.delete(id);
+  }
+
+  // Reverse-map raw stage values back to canonical labels for the dashboard
+  // (so c.lifecyclestage = "onboarding" regardless of whether HubSpot stored it
+  // as "Onboarding", "110575888", or anything else).
+  const valueToLabel = {};
+  for (const [label, value] of Object.entries(stageMap)) {
+    valueToLabel[value.toString().toLowerCase().trim()] = label;
+  }
+  for (const row of rowsById.values()) {
+    const raw = (row.properties?.lifecyclestage || "").toString().toLowerCase().trim();
+    if (valueToLabel[raw]) {
+      // Overwrite the raw value with the human label so the dashboard's lowercase
+      // string compare ("onboarding" === c.lifecyclestage) works.
+      row.properties.lifecyclestage = valueToLabel[raw];
+    }
   }
 
   // If BOTH fields failed, that's a real problem — surface it
@@ -354,6 +384,36 @@ async function resolveOwners(companies, token) {
     }
   }
   return ownerMap;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// HubSpot — resolve lifecycle stage LABELS to their internal stored VALUES
+// ────────────────────────────────────────────────────────────────────────────
+// Custom stages are stored as numeric ids (e.g. "69092992"); built-in ones use
+// snake_case ("evangelist", "lead"). HubSpot's properties API gives us the
+// option list so we can map "Onboarding" → "110575888" automatically.
+
+async function fetchLifecycleStageMap(token) {
+  try {
+    const r = await fetch("https://api.hubapi.com/crm/v3/properties/companies/lifecyclestage", {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!r.ok) {
+      console.warn("Lifecycle property fetch failed:", r.status);
+      return {};
+    }
+    const data = await r.json();
+    const map = {};
+    for (const opt of (data.options || [])) {
+      const label = (opt.label || "").toLowerCase().trim();
+      const value = (opt.value || "").toString().toLowerCase().trim();
+      if (label && value) map[label] = value;
+    }
+    return map;
+  } catch (e) {
+    console.warn("Lifecycle property fetch error:", e.message);
+    return {};
+  }
 }
 
 function dateOnly(s) {
