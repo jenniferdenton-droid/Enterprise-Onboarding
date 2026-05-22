@@ -522,7 +522,7 @@ async function statusSave(hsId, status){
 
 async function archiveAccount(hsId, name){
   if(!confirm(`Mark ${name} as archived/completed? It will move to the Archived tab. You can restore it anytime.`)) return;
-  const key = getDashboardKey();
+  const key = await getDashboardKey();
   try {
     const res = await fetch("/api/archive", {
       method: "POST",
@@ -537,7 +537,7 @@ async function archiveAccount(hsId, name){
 }
 
 async function unarchiveAccount(hsId, name){
-  const key = getDashboardKey();
+  const key = await getDashboardKey();
   try {
     const res = await fetch(`/api/archive?hs_object_id=${encodeURIComponent(hsId)}`, {
       method: "DELETE",
@@ -687,7 +687,7 @@ async function rcpSendTest(){
   if(!confirm("Send weekly digest now?\n\n• Step 1 (~30s): Pull latest Slack messages and re-run AI analysis\n• Step 2 (~5s): Build and email the digest to all active recipients\n\nYou'll be asked for the manager password.")) return;
 
   // Prompt for password with context-specific reason
-  const key = getDashboardKey("sending the weekly digest");
+  const key = await getDashboardKey("sending the weekly digest");
   if(!key){
     err.style.color = "var(--danger)";
     err.textContent = "Password required — digest cancelled.";
@@ -1070,7 +1070,7 @@ async function addManualNote(hsId, rowIdx){
   const textEl = document.getElementById(`mnote-text-${rowIdx}`);
   const text = (textEl?.value || "").trim();
   if(!text) return;
-  const key = getDashboardKey();
+  const key = await getDashboardKey();
   try {
     const res = await fetch("/api/notes", {
       method: "POST",
@@ -1109,7 +1109,7 @@ async function addManualNote(hsId, rowIdx){
 
 async function deleteManualNote(hsId, noteId){
   if(!confirm("Delete this note?")) return;
-  const key = getDashboardKey();
+  const key = await getDashboardKey();
   try {
     const res = await fetch(`/api/notes?hs_object_id=${encodeURIComponent(hsId)}&note_id=${encodeURIComponent(noteId)}`, {
       method: "DELETE",
@@ -1333,22 +1333,63 @@ function summary(){
 }
 
 // ── Password gate (used for Refresh + Send Digest) ──
-function getDashboardKey(reason){
+// Uses a custom in-page modal because Chrome blocks consecutive native dialogs.
+async function getDashboardKey(reason){
   let key = localStorage.getItem("moxie_dashboard_key");
-  if(!key){
-    const msg = reason
-      ? `Manager password required: ${reason}\n\n(Pulling Slack + running AI analysis is gated to authorized managers.)`
-      : "Manager password required to run live Slack pull + AI analysis.";
-    key = prompt(msg);
-    if(key){
-      localStorage.setItem("moxie_dashboard_key", key);
-    }
+  if(key) return key;
+  key = await showPasswordModal(reason);
+  if(key){
+    localStorage.setItem("moxie_dashboard_key", key);
   }
   return key || "";
 }
 
 function clearDashboardKey(){
   localStorage.removeItem("moxie_dashboard_key");
+}
+
+function showPasswordModal(reason){
+  return new Promise((resolve) => {
+    // Backdrop
+    const bg = document.createElement("div");
+    bg.style.cssText = `position:fixed;inset:0;background:rgba(26,22,48,0.55);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;`;
+
+    // Modal box
+    const box = document.createElement("div");
+    box.style.cssText = `background:var(--surface);border-radius:12px;padding:28px;width:420px;max-width:90vw;box-shadow:0 12px 40px rgba(0,0,0,0.3);font-family:'DM Sans',sans-serif;`;
+    box.innerHTML = `
+      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--text);margin-bottom:6px;">🔒 Manager password</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
+        ${reason ? `Required to: <strong>${reason}</strong>.<br>` : ''}
+        This action pulls live Slack messages and runs AI analysis, so it's gated to authorized managers.
+      </div>
+      <label style="display:block;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;font-weight:600;">Password</label>
+      <input type="password" id="pw-modal-input" placeholder="Enter dashboard password" style="width:100%;background:var(--bg);border:1px solid var(--border);padding:10px 12px;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);outline:none;margin-bottom:14px;" autofocus>
+      <div id="pw-modal-err" style="color:var(--danger);font-size:11px;min-height:14px;margin-bottom:8px;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button id="pw-modal-cancel" class="ch-btn ghost">Cancel</button>
+        <button id="pw-modal-ok" class="ch-btn">Continue →</button>
+      </div>
+    `;
+    bg.appendChild(box);
+    document.body.appendChild(bg);
+
+    const input = box.querySelector("#pw-modal-input");
+    const okBtn = box.querySelector("#pw-modal-ok");
+    const cancelBtn = box.querySelector("#pw-modal-cancel");
+
+    const close = (val) => { bg.remove(); resolve(val); };
+
+    okBtn.onclick = () => close(input.value.trim());
+    cancelBtn.onclick = () => close("");
+    input.onkeydown = (e) => {
+      if(e.key === "Enter") close(input.value.trim());
+      if(e.key === "Escape") close("");
+    };
+
+    // Focus the input — small delay to ensure modal is in DOM
+    setTimeout(() => input.focus(), 50);
+  });
 }
 
 // ── Refresh: pulls live HubSpot + Slack data via /api/refresh ──
@@ -1366,7 +1407,7 @@ async function loadAll(mode){
   const activeIcon = mode === "hubspot" ? refreshIcon : slackIcon;
 
   const reason = mode === "hubspot" ? "refreshing HubSpot data" : "pulling Slack + running AI analysis";
-  const key = getDashboardKey(reason);
+  const key = await getDashboardKey(reason);
   if(!key){
     document.getElementById("sync-lbl").textContent="Refresh cancelled — password required";
     return;
