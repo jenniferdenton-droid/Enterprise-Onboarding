@@ -683,15 +683,29 @@ async function rcpSendTest(){
   err.textContent = "";
   err.style.color = "var(--muted)";
 
-  // Explicit confirmation — makes the password requirement obvious
-  if(!confirm("Send weekly digest now?\n\n• Step 1 (~30s): Pull latest Slack messages and re-run AI analysis\n• Step 2 (~5s): Build and email the digest to all active recipients\n\nYou'll be asked for the manager password.")) return;
-
-  // Prompt for password with context-specific reason
-  const key = await getDashboardKey("sending the weekly digest");
-  if(!key){
-    err.style.color = "var(--danger)";
-    err.textContent = "Password required — digest cancelled.";
-    return;
+  // Single unified modal: shows what's about to happen + asks for the password
+  // in the same dialog (no separate confirm + prompt to avoid Chrome dialog suppression).
+  const savedKey = localStorage.getItem("moxie_dashboard_key");
+  let key;
+  if (savedKey) {
+    // Password already saved — just confirm intent with a single dialog (modal)
+    const ok = await showActionConfirmModal({
+      title: "Send weekly digest",
+      description: `<strong>Step 1 (~30s):</strong> Pull latest Slack messages from the past 14 business days and re-run AI analysis<br><br><strong>Step 2 (~5s):</strong> Build and email the digest to all active recipients<br><br>Using saved manager password.`,
+      confirmText: "Send digest now"
+    });
+    if (!ok) return;
+    key = savedKey;
+  } else {
+    // No saved password — show combined modal with password field
+    key = await showActionConfirmModal({
+      title: "Send weekly digest",
+      description: `<strong>Step 1 (~30s):</strong> Pull latest Slack messages from the past 14 business days and re-run AI analysis<br><br><strong>Step 2 (~5s):</strong> Build and email the digest to all active recipients`,
+      confirmText: "Send digest now",
+      requirePassword: true
+    });
+    if (!key) return;
+    localStorage.setItem("moxie_dashboard_key", key);
   }
 
   btn.disabled = true;
@@ -1346,6 +1360,59 @@ async function getDashboardKey(reason){
 
 function clearDashboardKey(){
   localStorage.removeItem("moxie_dashboard_key");
+}
+
+// Unified action-confirmation modal. Can optionally include a password field.
+// Returns:
+//   - if requirePassword: the password string the user typed, or "" if cancelled
+//   - otherwise: true if confirmed, false if cancelled
+function showActionConfirmModal({ title, description, confirmText, requirePassword }){
+  return new Promise((resolve) => {
+    const bg = document.createElement("div");
+    bg.style.cssText = `position:fixed;inset:0;background:rgba(26,22,48,0.55);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;`;
+
+    const box = document.createElement("div");
+    box.style.cssText = `background:var(--surface);border-radius:12px;padding:28px;width:460px;max-width:90vw;box-shadow:0 12px 40px rgba(0,0,0,0.3);font-family:'DM Sans',sans-serif;`;
+    box.innerHTML = `
+      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--text);margin-bottom:10px;">${title}</div>
+      <div style="font-size:13px;color:var(--text);margin-bottom:18px;line-height:1.6;">
+        ${description}
+      </div>
+      ${requirePassword ? `
+        <label style="display:block;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;font-weight:600;">🔒 Manager Password</label>
+        <input type="password" id="ac-modal-input" placeholder="Enter dashboard password" style="width:100%;background:var(--bg);border:1px solid var(--border);padding:10px 12px;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);outline:none;margin-bottom:14px;" autofocus>
+      ` : ''}
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button id="ac-modal-cancel" class="ch-btn ghost">Cancel</button>
+        <button id="ac-modal-ok" class="ch-btn">${confirmText || "Continue"}</button>
+      </div>
+    `;
+    bg.appendChild(box);
+    document.body.appendChild(bg);
+
+    const okBtn = box.querySelector("#ac-modal-ok");
+    const cancelBtn = box.querySelector("#ac-modal-cancel");
+    const input = box.querySelector("#ac-modal-input");
+
+    const close = (val) => { bg.remove(); resolve(val); };
+
+    if (requirePassword) {
+      okBtn.onclick = () => close(input.value.trim());
+      cancelBtn.onclick = () => close("");
+      input.onkeydown = (e) => {
+        if(e.key === "Enter") close(input.value.trim());
+        if(e.key === "Escape") close("");
+      };
+      setTimeout(() => input.focus(), 50);
+    } else {
+      okBtn.onclick = () => close(true);
+      cancelBtn.onclick = () => close(false);
+      bg.onkeydown = (e) => {
+        if(e.key === "Escape") close(false);
+      };
+      setTimeout(() => okBtn.focus(), 50);
+    }
+  });
 }
 
 function showPasswordModal(reason){
