@@ -78,11 +78,12 @@ export default async function handler(req, res) {
     const companies = await fetchHubSpotCompanies(HUBSPOT_TOKEN);
     timing.hubspot_companies_ms = Date.now() - t1;
 
-    // Run revenue + launch-history enrichments in parallel — both independent
+    // Run revenue + launch-history + lifecycle-history enrichments in parallel — all independent
     const t1b = Date.now();
     await Promise.all([
       enrichWithDealRevenue(companies, HUBSPOT_TOKEN).catch(e => console.warn("deal revenue:", e.message)),
-      fetchLaunchDateHistory(companies, HUBSPOT_TOKEN).catch(e => console.warn("launch history:", e.message))
+      fetchLaunchDateHistory(companies, HUBSPOT_TOKEN).catch(e => console.warn("launch history:", e.message)),
+      fetchLifecycleStageHistory(companies, HUBSPOT_TOKEN).catch(e => console.warn("lifecycle history:", e.message))
     ]);
     timing.hubspot_enrichment_ms = Date.now() - t1b;
 
@@ -522,7 +523,15 @@ async function fetchHubSpotCompanies(token) {
       practice_success_manager_name: null,
       monthly_revenue: null,                   // populated by enrichWithDealRevenue
       delayed_reason: p.delayed_reason || null,
-      pre_onboarding_reason: p.pre_onboarding_reason || null
+      pre_onboarding_reason: p.pre_onboarding_reason || null,
+      // Populated by fetchLifecycleStageHistory — when the company most recently
+      // entered its current lifecycle stage. Used for "Days in Pre-launch".
+      lifecycle_stage_entered_at: null,
+      lifecycle_stage_previous: null,
+      pre_launch_entered_at: null,
+      days_in_pre_launch: null,
+      post_launch_entered_at: null,
+      days_in_post_launch: null
     };
   });
 }
@@ -674,6 +683,95 @@ async function fetchLaunchDateHistory(companies, token) {
       }
     } catch (e) {
       console.warn("Launch date history fetch error:", e.message);
+    }
+  }));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Lifecycle stage history — when did each company enter their current stage?
+// Used by the dashboard to compute "Days in Pre-launch" (days since the
+// transition from Onboarding → Pre-Launch). HubSpot stores lifecycle values
+// as either snake_case names or numeric IDs, so we resolve both.
+// ────────────────────────────────────────────────────────────────────────────
+
+async function fetchLifecycleStageHistory(companies, token) {
+  if (!companies.length) return;
+  // Resolve "pre-launch" + "onboarding" + "post-launch customer" to their
+  // internal stored values so we can match them in the history payload.
+  const stageMap = await fetchLifecycleStageMap(token);
+  const preLaunchValues = new Set();
+  const onboardingValues = new Set();
+  const postLaunchValues = new Set();
+  const addAll = (set, label) => {
+    set.add(label);
+    if (stageMap[label]) set.add(stageMap[label].toString().toLowerCase().trim());
+  };
+  addAll(preLaunchValues, "pre-launch");
+  addAll(onboardingValues, "onboarding");
+  addAll(postLaunchValues, "post-launch customer");
+
+  const batches = [];
+  for (let i = 0; i < companies.length; i += 100) {
+    batches.push(companies.slice(i, i + 100));
+  }
+
+  await Promise.all(batches.map(async (batch) => {
+    try {
+      const r = await fetch("https://api.hubapi.com/crm/v3/objects/companies/batch/read", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inputs: batch.map(c => ({ id: c.hs_object_id })),
+          properties: ["lifecyclestage"],
+          propertiesWithHistory: ["lifecyclestage"]
+        })
+      });
+      if (!r.ok) {
+        console.warn("Lifecycle stage history batch failed:", r.status);
+        return;
+      }
+      const data = await r.json();
+      for (const row of (data.results || [])) {
+        const history = row.propertiesWithHistory?.lifecyclestage;
+        if (!Array.isArray(history) || !history.length) continue;
+        // history[0] is newest (current). Find when the company FIRST entered
+        // its current stage in this most-recent streak (i.e., walk back until
+        // the value changes — that's the moment of transition).
+        const current = history[0];
+        const currentVal = (current.value || "").toString().toLowerCase().trim();
+        if (!currentVal) continue;
+
+        // The transition timestamp = the timestamp of the newest history entry
+        // (HubSpot records a new history row each time the field is set).
+        const enteredAt = current.timestamp || null;
+
+        // Also find the previous stage (so we can confirm the transition was
+        // FROM Onboarding for pre-launch accounts — diagnostic only).
+        const prev = history[1];
+        const prevVal = prev ? (prev.value || "").toString().toLowerCase().trim() : null;
+
+        const c = companies.find(c => String(c.hs_object_id) === String(row.id));
+        if (!c) continue;
+        c.lifecycle_stage_entered_at = enteredAt;
+        c.lifecycle_stage_previous = prevVal;
+
+        // Compute days since entering the current stage
+        if (enteredAt) {
+          const ms = Date.now() - new Date(enteredAt).getTime();
+          const days = Math.max(0, Math.floor(ms / 86400000));
+          if (preLaunchValues.has(currentVal)) {
+            c.pre_launch_entered_at = enteredAt;
+            c.days_in_pre_launch = days;
+          } else if (postLaunchValues.has(currentVal)) {
+            c.post_launch_entered_at = enteredAt;
+            c.days_in_post_launch = days;
+          }
+          // (Onboarding days already come from HubSpot's days_in_onboarding field
+          //  — no need to duplicate.)
+        }
+      }
+    } catch (e) {
+      console.warn("Lifecycle stage history fetch error:", e.message);
     }
   }));
 }
