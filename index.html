@@ -229,8 +229,8 @@
 
 <!-- ── Lifecycle tabs (filters everything below) ───────────── -->
 <div class="lc-tabs">
-  <button class="lc-tab"    data-lc="pre-launch"           onclick="lcSwitch(this)">Pre-launch <span class="lc-count" id="lc-cnt-pre-launch">0</span></button>
   <button class="lc-tab on" data-lc="onboarding"           onclick="lcSwitch(this)">Onboarding <span class="lc-count" id="lc-cnt-onboarding">0</span></button>
+  <button class="lc-tab"    data-lc="pre-launch"           onclick="lcSwitch(this)">Pre-launch <span class="lc-count" id="lc-cnt-pre-launch">0</span></button>
   <button class="lc-tab"    data-lc="post-launch customer" onclick="lcSwitch(this)">Post-launch <span class="lc-count" id="lc-cnt-post-launch customer">0</span></button>
   <button class="lc-tab"    data-lc="archived"             onclick="lcSwitch(this)">📁 Archived <span class="lc-count" id="lc-cnt-archived">0</span></button>
 </div>
@@ -1033,8 +1033,12 @@ function sorted(arr){
       const bT = b.launch_date_changed_at ? new Date(b.launch_date_changed_at).getTime() : 0;
       return bT - aT;
     }
-    if(s==="days_d")return(parseInt(b.days_in_onboarding)||dSince(b.kickoff_date)||0)-(parseInt(a.days_in_onboarding)||dSince(a.kickoff_date)||0);
-    if(s==="days_a")return(parseInt(a.days_in_onboarding)||dSince(a.kickoff_date)||0)-(parseInt(b.days_in_onboarding)||dSince(b.kickoff_date)||0);
+    // Lifecycle-aware days: pre-launch tab sorts by days_in_pre_launch
+    const daysOf = (c) => curLifecycle === "pre-launch"
+      ? (c.days_in_pre_launch != null ? parseInt(c.days_in_pre_launch) : dSince(c.pre_launch_entered_at) || 0)
+      : (parseInt(c.days_in_onboarding) || dSince(c.kickoff_date) || 0);
+    if(s==="days_d")return daysOf(b) - daysOf(a);
+    if(s==="days_a")return daysOf(a) - daysOf(b);
     if(s==="launch_a")return new Date(a.current_target_launch_date||a.updated_target_launch_date||a.initial_target_launch_date||"9999")-new Date(b.current_target_launch_date||b.updated_target_launch_date||b.initial_target_launch_date||"9999");
     if(s==="rev_d")return(parseFloat(b.monthly_revenue)||0)-(parseFloat(a.monthly_revenue)||0);
     if(s==="name_a")return(a.name||"").localeCompare(b.name||"");
@@ -1056,22 +1060,28 @@ function toggle(id){
 
 function renderLaunchChange(c){
   // Shows whether the target launch date was moved, and which direction.
-  // Data comes from refresh.js (HubSpot property history on updated_target_launch_date).
+  // Format: "Pushed back / from <PREV> / to <NEW>" — readers were
+  // misinterpreting the old "on May 14" line as the new launch date.
   if(!c.launch_date_change_type){
     return `<span style="color:var(--muted);font-size:11px;font-style:italic;">No change</span>`;
   }
   const t = c.launch_date_change_type;
   const prev = c.launch_date_previous_value ? fDate(c.launch_date_previous_value) : "—";
-  const when = c.launch_date_changed_at ? fDateShort(c.launch_date_changed_at) : "";
+  // NEW target = the current launch date on the company (post-change).
+  // For "removed" there is no new target — surface the removal explicitly.
+  const newTarget = c.updated_target_launch_date || c.current_target_launch_date || null;
   const iconColor = t === "pushed_back" ? "var(--danger)" : t === "moved_up" ? "var(--ok)" : "var(--danger)";
   const bgColor   = t === "pushed_back" ? "rgba(184,85,85,.08)" : t === "moved_up" ? "rgba(46,138,106,.08)" : "rgba(184,85,85,.08)";
   const icon = t === "pushed_back" ? "⬇" : t === "moved_up" ? "⬆" : "❌";
   const label = t === "pushed_back" ? "Pushed back" : t === "moved_up" ? "Moved up" : "Removed";
+  const toLine = t === "removed"
+    ? `<div style="color:var(--danger);font-size:9px;margin-top:1px;">no target set</div>`
+    : (newTarget ? `<div style="color:var(--text);font-weight:600;margin-top:1px;">to <strong>${fDate(newTarget)}</strong></div>` : '');
   return `
     <div style="font-size:10px;line-height:1.3;padding:4px 6px;background:${bgColor};border-radius:5px;">
       <div style="color:${iconColor};font-weight:700;">${icon} ${label}</div>
       <div style="color:var(--muted);margin-top:2px;">from <strong>${prev}</strong></div>
-      ${when?`<div style="color:var(--muted);font-size:9px;margin-top:1px;">on ${when}</div>`:''}
+      ${toLine}
     </div>`;
 }
 
@@ -1226,7 +1236,14 @@ function render(){
     const color   =colFor(c.name);
     const num     =(c.name||"").match(/-\s*(\d+)$/)?.[1]||"";
     const display =(c.name||"").replace(/-\s*\d+$/,"").trim();
-    const days    =parseInt(c.days_in_onboarding)||dSince(c.kickoff_date);
+    // Days column is lifecycle-aware:
+    //  - pre-launch tab → days_in_pre_launch (from lifecycle stage history)
+    //  - onboarding / post-launch → days_in_onboarding (HubSpot field)
+    //  - fallback → days since kickoff
+    const stage = (c.lifecyclestage || "").toLowerCase();
+    const days  = stage === "pre-launch"
+      ? (c.days_in_pre_launch != null ? parseInt(c.days_in_pre_launch) : dSince(c.pre_launch_entered_at))
+      : (parseInt(c.days_in_onboarding) || dSince(c.kickoff_date));
     const launchRemoved = c.launch_date_change_type === "removed";
     // If launch date was explicitly removed, don't fall back to initial — show empty
     const ld      = launchRemoved ? null : (c.updated_target_launch_date || c.current_target_launch_date || c.initial_target_launch_date);
@@ -1409,7 +1426,15 @@ function summary(){
     const dl=dUntil(c.current_target_launch_date||c.updated_target_launch_date||c.initial_target_launch_date);
     return dl!==null&&dl>=0&&dl<=30;
   });
-  const dArr=scoped.map(c=>parseInt(c.days_in_onboarding)||dSince(c.kickoff_date)).filter(d=>d!==null&&d>0);
+  // Days metric matches the active lifecycle tab:
+  //   pre-launch → days_in_pre_launch
+  //   onboarding / post-launch → days_in_onboarding (or days since kickoff)
+  const dArr=scoped.map(c=>{
+    if(curLifecycle==="pre-launch"){
+      return c.days_in_pre_launch!=null?parseInt(c.days_in_pre_launch):dSince(c.pre_launch_entered_at);
+    }
+    return parseInt(c.days_in_onboarding)||dSince(c.kickoff_date);
+  }).filter(d=>d!==null&&d>0);
   const avg=dArr.length?Math.round(dArr.reduce((a,b)=>a+b,0)/dArr.length):null;
   document.getElementById("s-total").textContent=scoped.length;
   document.getElementById("s-avg").textContent=avg?avg+"d":"—";
