@@ -116,8 +116,8 @@ function buildDigestHtml(snap) {
 
   // Aggregate metrics
   let blockerCount = 0, riskCount = 0;
-  let gmvAtRisk = 0;
-  let launchChangeCount = 0;
+  let gmvAtRiskOnboarding = 0;
+  let gmvAtRiskPreLaunch = 0;
 
   // Walk every account to count
   for (const c of active) {
@@ -132,13 +132,16 @@ function buildDigestHtml(snap) {
       if (n.type === "blocker") blockerCount++;
       if (n.type === "risk") riskCount++;
     }
-    // GMV at risk = monthly_revenue for delayed / blocked accounts
+    // GMV at risk = monthly_revenue for delayed / blocked accounts — bucketed by stage
     const status = (c.moxie_onboarding_status_override || c.moxie_onboarding_status || "").toLowerCase();
     const hasBlockers = accountNotes.some(n => n.type === "blocker") || (c.manual_notes || []).some(n => n.type === "blocker");
     const isAtRisk = status.includes("delayed") || status.includes("at risk") || status.includes("on hold") || !!c.delayed_reason || hasBlockers;
-    if (isAtRisk && c.monthly_revenue) gmvAtRisk += parseFloat(c.monthly_revenue) || 0;
-    // Launch date change count
-    if (c.launch_date_change_type) launchChangeCount++;
+    if (isAtRisk && c.monthly_revenue) {
+      const rev = parseFloat(c.monthly_revenue) || 0;
+      const stage = (c.lifecyclestage || "").toLowerCase();
+      if (stage === "onboarding") gmvAtRiskOnboarding += rev;
+      else if (stage === "pre-launch") gmvAtRiskPreLaunch += rev;
+    }
   }
 
   // Date label
@@ -164,8 +167,8 @@ function buildDigestHtml(snap) {
         ${kpi("Active Accounts", `${active.length}`, "#4F0751")}
         ${kpi("Blockers", `${blockerCount}`, "#b00020")}
         ${kpi("Risks", `${riskCount}`, "#9a6f00")}
-        ${kpi("Launch Date Changes", `${launchChangeCount}`, "#9a6f00")}
-        ${kpi("GMV at Risk", fmtMoney(gmvAtRisk), "#b00020")}
+        ${kpi("GMV at Risk · Onboarding", fmtMoney(gmvAtRiskOnboarding), "#b00020")}
+        ${kpi("GMV at Risk · Pre-launch", fmtMoney(gmvAtRiskPreLaunch), "#b00020")}
       </tr>
     </table>
 
@@ -188,8 +191,8 @@ function buildDigestHtml(snap) {
       dateLabel,
       blockerCount,
       riskCount,
-      launchChangeCount,
-      gmvAtRisk,
+      gmvAtRiskOnboarding,
+      gmvAtRiskPreLaunch,
       activeCount: active.length,
       onboardingCount: onboarding.length,
       preLaunchCount: preLaunch.length,
@@ -237,22 +240,30 @@ function renderAccountRow(c, notesByKey) {
   // Bucket by type
   const blockers = slackNotes.filter(n => n.type === "blocker");
   const risks    = slackNotes.filter(n => n.type === "risk");
-  const updates  = slackNotes.filter(n => n.type === "update");
+  // Updates: filter to past 7 days + cap at top 3 to keep the digest skimmable.
+  // Blockers & Risks stay full detail — those are the action items.
+  const allUpdates = slackNotes.filter(n => n.type === "update");
+  const updates = pickRecentUpdates(allUpdates, 7).slice(0, 3);
 
   // Launch date (with "Removed" handling)
   const launchRemoved = c.launch_date_change_type === "removed";
   const target = launchRemoved ? null : (c.updated_target_launch_date || c.current_target_launch_date || c.initial_target_launch_date);
 
-  // Launch change badge — sits NEXT TO the target launch date (per user request)
+  // Launch change badge — sits NEXT TO the target launch date.
+  // Format: "<icon> <label> from <PREV> to <NEW>" so readers see the new date,
+  // not the date the change was recorded (which used to confuse people).
   let changeBadge = "";
   if (c.launch_date_change_type) {
     const t = c.launch_date_change_type;
     const prev = c.launch_date_previous_value ? fmtDate(c.launch_date_previous_value) : "—";
-    const when = c.launch_date_changed_at ? fmtDate(c.launch_date_changed_at) : "";
+    const newTarget = c.updated_target_launch_date || c.current_target_launch_date || null;
     const color = t === "pushed_back" ? "#b00020" : t === "moved_up" ? "#2e8a6a" : "#b00020";
     const icon = t === "pushed_back" ? "⬇" : t === "moved_up" ? "⬆" : "❌";
     const label = t === "pushed_back" ? "Pushed back" : t === "moved_up" ? "Moved up" : "Removed";
-    changeBadge = `<span style="display:inline-block;font-size:11px;font-weight:600;color:${color};background:${color}1a;padding:2px 8px;border-radius:10px;margin-left:8px;">${icon} ${label} from ${prev}${when?` on ${when}`:''}</span>`;
+    const toPart = t === "removed"
+      ? " (no target set)"
+      : (newTarget ? ` to ${fmtDate(newTarget)}` : "");
+    changeBadge = `<span style="display:inline-block;font-size:11px;font-weight:600;color:${color};background:${color}1a;padding:2px 8px;border-radius:10px;margin-left:8px;">${icon} ${label} from ${prev}${toPart}</span>`;
   }
 
   // Revenue — sits next to target launch with "Revenue:" label
@@ -285,7 +296,8 @@ function renderAccountRow(c, notesByKey) {
     ? `<a href="${hsUrl}" style="color:#4F0751;text-decoration:none;border-bottom:1px dotted #4F0751;">${escapeHtml(display)}</a>`
     : escapeHtml(display);
 
-  // Render buckets
+  // Render buckets — Blockers + Risks stay full detail (these need action),
+  // Updates get truncated to keep the digest skimmable.
   const renderBucket = (label, color, icon, items) => {
     if (!items.length) return "";
     const list = items.map(n => `
@@ -297,6 +309,25 @@ function renderAccountRow(c, notesByKey) {
       <div style="margin-top:8px;">
         <div style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.5px;">${icon} ${label} (${items.length})</div>
         <ul style="margin:4px 0 0 18px;padding:0;">${list}</ul>
+      </div>
+    `;
+  };
+
+  // Updates renderer: tighter — short truncated text, no bullets, semicolon-joined.
+  const renderUpdatesShort = (items, totalCount) => {
+    if (!items.length) return "";
+    const trim = (t) => {
+      const s = (t || "").trim();
+      return s.length > 120 ? s.slice(0, 117) + "…" : s;
+    };
+    const line = items.map(n => `${escapeHtml(trim(n.text))} <span style="color:#999;">(${escapeHtml(n.date || "")})</span>`).join(" &nbsp;·&nbsp; ");
+    const moreNote = totalCount > items.length
+      ? `<span style="color:#999;font-size:10px;font-style:italic;"> +${totalCount - items.length} more — open dashboard for full list</span>`
+      : "";
+    return `
+      <div style="margin-top:8px;">
+        <div style="font-size:11px;font-weight:700;color:#2e8a6a;text-transform:uppercase;letter-spacing:0.5px;">📌 Updates from the past 7 days</div>
+        <div style="font-size:12px;color:#1a1a1a;margin-top:4px;line-height:1.5;">${line}${moreNote}</div>
       </div>
     `;
   };
@@ -314,8 +345,8 @@ function renderAccountRow(c, notesByKey) {
         ${reasons.length ? `<div style="margin-top:6px;font-size:12px;color:#1a1a1a;">${reasons.join("<br>")}</div>` : ''}
         ${renderBucket("Blockers", "#b00020", "🚨", blockers)}
         ${renderBucket("Risks",    "#9a6f00", "⚠️", risks)}
-        ${renderBucket("Updates",  "#2e8a6a", "📌", updates)}
-        ${(blockers.length + risks.length + updates.length === 0)
+        ${renderUpdatesShort(updates, allUpdates.length)}
+        ${(blockers.length + risks.length + allUpdates.length === 0)
           ? `<div style="margin-top:6px;font-size:11px;color:#999;font-style:italic;">No Slack updates in the past 14 business days.</div>`
           : ''}
       </td>
@@ -329,9 +360,9 @@ function renderAccountRow(c, notesByKey) {
 
 function kpi(label, value, color) {
   return `
-    <td style="text-align:center;padding:14px 8px;background:${color}0d;border-radius:8px;width:20%;">
-      <div style="font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.6px;font-weight:600;">${label}</div>
-      <div style="font-size:22px;font-weight:700;color:${color};margin-top:4px;">${value}</div>
+    <td style="text-align:center;padding:12px 6px;background:${color}0d;border-radius:8px;width:20%;vertical-align:top;">
+      <div style="font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;line-height:1.3;min-height:24px;">${label}</div>
+      <div style="font-size:20px;font-weight:700;color:${color};margin-top:4px;">${value}</div>
     </td>
   `;
 }
@@ -356,6 +387,45 @@ function fmtMoney(n) {
 
 function getCompanyKey(name) {
   return (name || "").toLowerCase().split(/\s+/)[0];
+}
+
+// Parse "Mon D" (e.g. "May 22") + current year and return a Date — used to
+// filter updates to a rolling window. Falls back to "always include" if the
+// date string is missing or unparseable, so we never silently drop notes.
+function parseNoteDate(s) {
+  if (!s) return null;
+  const m = String(s).trim().match(/^([A-Za-z]{3,9})\s+(\d{1,2})/);
+  if (!m) return null;
+  const months = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+  const mo = months[m[1].slice(0,3).toLowerCase()];
+  const day = parseInt(m[2]);
+  if (mo == null || isNaN(day)) return null;
+  const now = new Date();
+  let yr = now.getFullYear();
+  // If the parsed date is more than 60 days in the future, assume it's actually
+  // last year (e.g. parsing "Dec 28" in early January).
+  const d = new Date(yr, mo, day);
+  if ((d.getTime() - now.getTime()) > 60 * 86400000) {
+    d.setFullYear(yr - 1);
+  }
+  return d;
+}
+
+// Sort updates newest-first and keep only those within `days` calendar days.
+// Items without a parseable date are kept (we'd rather show a maybe-recent
+// item than silently drop it).
+function pickRecentUpdates(items, days) {
+  const cutoff = Date.now() - days * 86400000;
+  const withDate = items.map(n => ({ n, d: parseNoteDate(n.date) }));
+  // Newest first; undated items float to the top (treated as "recent enough")
+  withDate.sort((a, b) => {
+    const aT = a.d ? a.d.getTime() : Date.now();
+    const bT = b.d ? b.d.getTime() : Date.now();
+    return bT - aT;
+  });
+  return withDate
+    .filter(({ d }) => d == null || d.getTime() >= cutoff)
+    .map(({ n }) => n);
 }
 
 function escapeHtml(s) {
