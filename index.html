@@ -70,7 +70,7 @@
   .row-card:hover{border-color:rgba(79,7,81,0.25);box-shadow:0 3px 12px rgba(79,7,81,0.1);}
   @keyframes ri{to{opacity:1}}
 
-  .row-main{display:grid;grid-template-columns:2fr 100px 90px 120px 145px 160px 120px 28px;align-items:center;gap:0;cursor:pointer;}
+  .row-main{display:grid;grid-template-columns:2fr 100px 90px 120px 160px 120px 28px;align-items:center;gap:0;cursor:pointer;}
   .cell{padding:13px 16px;border-right:1px solid var(--border);}
   .cell:last-child{border-right:none;padding:13px 12px;}
 
@@ -1223,12 +1223,12 @@ function render(){
     curLifecycle === "onboarding" ? "Days in Onboarding" :
     curLifecycle === "post-launch customer" ? "Days in Onboarding" :
     "Days In";
-  const cols=["Practice","Mo. Revenue", daysLabel, "Target Launch","Status","Launch Change","Manager",""];
+  const cols=["Practice","Mo. Revenue", daysLabel, "Target Launch","Launch Change","Manager",""];
   const existingHdr = document.querySelector('.rows-header');
   if(existingHdr) existingHdr.remove();
   const hdr=document.createElement('div');
   hdr.className='rows-header';
-  hdr.style.cssText='display:grid;grid-template-columns:2fr 100px 90px 120px 145px 160px 120px 28px;padding:0 0 6px 0;';
+  hdr.style.cssText='display:grid;grid-template-columns:2fr 100px 90px 120px 160px 120px 28px;padding:0 0 6px 0;';
   hdr.innerHTML=cols.map((c,i)=>`<div style="padding:0 16px;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.4px;font-weight:600;${i===2?'text-align:center':''}">${c}</div>`).join("");
   wrap.before(hdr);
 
@@ -1328,12 +1328,6 @@ function render(){
               ? `<div class="${lcls}" style="font-size:12px">${fDate(ld)}</div>${dl!==null?`<div style="font-size:9px;color:var(--muted);margin-top:1px">${dl<0?Math.abs(dl)+'d overdue':dl+'d away'}</div>`:''}`
               : `<span style="color:var(--muted);font-style:italic;">No target set</span>`
           }
-        </div>
-        <div class="cell" style="overflow:hidden">
-          <button onclick="event.stopPropagation();statusOpenMenu('${c.hs_object_id}','${escapeJs(effStatus)}',this)" title="Click to change status" class="chip ${isDelay?'c-warn':'c-ok'}" style="cursor:pointer;border:1px solid ${isDelay?'rgba(140,101,32,.4)':'rgba(46,138,106,.4)'};font-family:'DM Sans',sans-serif;white-space:normal;text-align:left;line-height:1.25;max-width:100%;display:inline-block;">
-            ${escapeHtml(effStatus || 'In Progress')} ✎
-          </button>
-          ${c.moxie_onboarding_status_override?'<div style="font-size:8px;color:var(--muted);margin-top:2px;">edited</div>':''}
         </div>
         <div class="cell">
           ${renderLaunchChange(c)}
