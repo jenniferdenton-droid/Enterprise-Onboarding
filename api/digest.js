@@ -114,17 +114,21 @@ function buildDigestHtml(snap) {
   const preLaunch    = active.filter(c => (c.lifecyclestage || "").toLowerCase() === "pre-launch");
   const postLaunch   = active.filter(c => (c.lifecyclestage || "").toLowerCase() === "post-launch customer");
 
-  // Aggregate metrics — tracked overall + broken out by lifecycle stage so
-  // each KPI card can show "X total / Y Onboarding · Z Pre-launch".
+  // Aggregate metrics — Post-launch accounts are EXCLUDED from the header KPIs
+  // (Active / Blockers / Risks / GMV at Risk). Rationale: the weekly digest's
+  // KPI row is about accounts still being onboarded or about to launch; post-
+  // launch customers belong to PSM territory and would skew the totals.
+  // Post-launch accounts still appear in their own digest section below.
   let blockerCount = 0, riskCount = 0;
   let blockerOnboarding = 0, blockerPreLaunch = 0;
   let riskOnboarding = 0, riskPreLaunch = 0;
   let gmvAtRiskOnboarding = 0;
   let gmvAtRiskPreLaunch = 0;
 
-  // Walk every account to count
+  // Walk every account to count — but only Onboarding + Pre-launch feed the KPIs
   for (const c of active) {
     const stage = (c.lifecyclestage || "").toLowerCase();
+    if (stage !== "onboarding" && stage !== "pre-launch") continue; // skip post-launch + anything else
     const key = getCompanyKey(c.name);
     const accountNotes = notes[key] || [];
     const allNotes = [...accountNotes, ...(c.manual_notes || [])];
@@ -171,7 +175,7 @@ function buildDigestHtml(snap) {
 
     <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:18px;">
       <tr>
-        ${kpi("Active Accounts", `${active.length}`, "#4F0751", `${onboarding.length} Onboarding · ${preLaunch.length} Pre-launch`)}
+        ${kpi("Active Accounts", `${onboarding.length + preLaunch.length}`, "#4F0751", `${onboarding.length} Onboarding · ${preLaunch.length} Pre-launch`)}
         ${kpi("Blockers", `${blockerCount}`, "#b00020", `${blockerOnboarding} Onboarding · ${blockerPreLaunch} Pre-launch`)}
         ${kpi("Risks", `${riskCount}`, "#9a6f00", `${riskOnboarding} Onboarding · ${riskPreLaunch} Pre-launch`)}
         ${kpi("GMV at Risk · Onboarding", fmtMoney(gmvAtRiskOnboarding), "#b00020")}
