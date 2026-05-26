@@ -114,31 +114,38 @@ function buildDigestHtml(snap) {
   const preLaunch    = active.filter(c => (c.lifecyclestage || "").toLowerCase() === "pre-launch");
   const postLaunch   = active.filter(c => (c.lifecyclestage || "").toLowerCase() === "post-launch customer");
 
-  // Aggregate metrics
+  // Aggregate metrics — tracked overall + broken out by lifecycle stage so
+  // each KPI card can show "X total / Y Onboarding · Z Pre-launch".
   let blockerCount = 0, riskCount = 0;
+  let blockerOnboarding = 0, blockerPreLaunch = 0;
+  let riskOnboarding = 0, riskPreLaunch = 0;
   let gmvAtRiskOnboarding = 0;
   let gmvAtRiskPreLaunch = 0;
 
   // Walk every account to count
   for (const c of active) {
+    const stage = (c.lifecyclestage || "").toLowerCase();
     const key = getCompanyKey(c.name);
     const accountNotes = notes[key] || [];
-    for (const n of accountNotes) {
-      if (n.type === "blocker") blockerCount++;
-      if (n.type === "risk") riskCount++;
-    }
-    // Manual notes count too
-    for (const n of (c.manual_notes || [])) {
-      if (n.type === "blocker") blockerCount++;
-      if (n.type === "risk") riskCount++;
+    const allNotes = [...accountNotes, ...(c.manual_notes || [])];
+    for (const n of allNotes) {
+      if (n.type === "blocker") {
+        blockerCount++;
+        if (stage === "onboarding") blockerOnboarding++;
+        else if (stage === "pre-launch") blockerPreLaunch++;
+      }
+      if (n.type === "risk") {
+        riskCount++;
+        if (stage === "onboarding") riskOnboarding++;
+        else if (stage === "pre-launch") riskPreLaunch++;
+      }
     }
     // GMV at risk = monthly_revenue for delayed / blocked accounts — bucketed by stage
     const status = (c.moxie_onboarding_status_override || c.moxie_onboarding_status || "").toLowerCase();
-    const hasBlockers = accountNotes.some(n => n.type === "blocker") || (c.manual_notes || []).some(n => n.type === "blocker");
+    const hasBlockers = allNotes.some(n => n.type === "blocker");
     const isAtRisk = status.includes("delayed") || status.includes("at risk") || status.includes("on hold") || !!c.delayed_reason || hasBlockers;
     if (isAtRisk && c.monthly_revenue) {
       const rev = parseFloat(c.monthly_revenue) || 0;
-      const stage = (c.lifecyclestage || "").toLowerCase();
       if (stage === "onboarding") gmvAtRiskOnboarding += rev;
       else if (stage === "pre-launch") gmvAtRiskPreLaunch += rev;
     }
@@ -164,9 +171,9 @@ function buildDigestHtml(snap) {
 
     <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:18px;">
       <tr>
-        ${kpi("Active Accounts", `${active.length}`, "#4F0751")}
-        ${kpi("Blockers", `${blockerCount}`, "#b00020")}
-        ${kpi("Risks", `${riskCount}`, "#9a6f00")}
+        ${kpi("Active Accounts", `${active.length}`, "#4F0751", `${onboarding.length} Onboarding · ${preLaunch.length} Pre-launch`)}
+        ${kpi("Blockers", `${blockerCount}`, "#b00020", `${blockerOnboarding} Onboarding · ${blockerPreLaunch} Pre-launch`)}
+        ${kpi("Risks", `${riskCount}`, "#9a6f00", `${riskOnboarding} Onboarding · ${riskPreLaunch} Pre-launch`)}
         ${kpi("GMV at Risk · Onboarding", fmtMoney(gmvAtRiskOnboarding), "#b00020")}
         ${kpi("GMV at Risk · Pre-launch", fmtMoney(gmvAtRiskPreLaunch), "#b00020")}
       </tr>
@@ -191,6 +198,10 @@ function buildDigestHtml(snap) {
       dateLabel,
       blockerCount,
       riskCount,
+      blockerOnboarding,
+      blockerPreLaunch,
+      riskOnboarding,
+      riskPreLaunch,
       gmvAtRiskOnboarding,
       gmvAtRiskPreLaunch,
       activeCount: active.length,
@@ -358,11 +369,17 @@ function renderAccountRow(c, notesByKey) {
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────
 
-function kpi(label, value, color) {
+function kpi(label, value, color, breakdown) {
+  // Optional `breakdown` renders below the number as a small grey sub-line
+  // (e.g. "12 Onboarding · 8 Pre-launch"). Used on Active / Blockers / Risks.
+  const subline = breakdown
+    ? `<div style="font-size:10px;color:#666;margin-top:4px;line-height:1.3;">${breakdown}</div>`
+    : "";
   return `
     <td style="text-align:center;padding:12px 6px;background:${color}0d;border-radius:8px;width:20%;vertical-align:top;">
       <div style="font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;line-height:1.3;min-height:24px;">${label}</div>
       <div style="font-size:20px;font-weight:700;color:${color};margin-top:4px;">${value}</div>
+      ${subline}
     </td>
   `;
 }
