@@ -273,11 +273,11 @@
 <!-- Home-only note explaining scope -->
 <div class="home-note" id="home-note">
   <span class="home-note-icon">ℹ</span>
-  This homepage only includes <strong style="color:var(--text);font-style:normal;">Pre-launch + Onboarding</strong> accounts. Use the tabs above for any single stage. <span style="margin-left:8px;color:var(--plum);font-style:normal;">Click on title tabs to see more details.</span>
+  This homepage only includes <strong style="color:var(--text);font-style:normal;">Pre-launch + Onboarding</strong> accounts. Use the tabs above for any single stage. <span style="margin-left:8px;color:var(--plum);font-style:normal;">Click on the below titles to see more details.</span>
 </div>
 
 <div class="summary">
-  <div class="sc c clickable" onclick="kpiPop('launches',this)"><div class="sc-lbl"><span class="has-tip" title="Count of medspas in Pre-launch + Onboarding whose target launch date is in the next 30 days. The sub-line is the sum of their booked monthly revenue (GMV).">Launches Next 30 Days</span></div><div class="sc-val" id="s-soon" style="color:var(--ok)">—</div><div class="sc-sub" id="s-soon-sub">— GMV</div></div>
+  <div class="sc c clickable" onclick="kpiPop('launches',this)"><div class="sc-lbl"><span class="has-tip" title="Count of medspas in Pre-launch + Onboarding whose target launch date is in the next 30 days. The sub-line is the sum of their booked monthly revenue (GMV).">Launches Next 30 Days</span></div><div class="sc-val" id="s-soon" style="color:var(--ok)">—</div><div class="sc-sub" id="s-soon-sub" style="font-size:15px;font-weight:700;color:var(--ok);font-family:'Playfair Display',serif;margin-top:4px;">— GMV</div></div>
   <div class="sc d clickable" onclick="kpiPop('delayed',this)"><div class="sc-lbl"><span class="has-tip" title="Medspas with onboarding status marked Delayed / On hold / At risk in HubSpot, OR with a delayed_reason set. Click to see which spas + their reasons.">Delayed</span></div><div class="sc-val" id="s-del" style="color:var(--danger)">—</div><div class="sc-sub" id="s-del-sub">top reasons</div></div>
   <div class="sc b clickable" onclick="kpiPop('unknown',this)"><div class="sc-lbl"><span class="has-tip" title="Medspas with no Target Launch date set in HubSpot, OR whose date was explicitly removed. Click to see which spas.">Unknown Launch Date</span></div><div class="sc-val" id="s-unk" style="color:var(--gold)">—</div><div class="sc-sub" id="s-unk-sub">no target set</div></div>
   <div class="sc d clickable" onclick="kpiPop('launchChange',this)" style="background:var(--surface);">
