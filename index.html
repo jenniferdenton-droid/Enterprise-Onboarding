@@ -41,7 +41,32 @@
 
   .static-banner{background:linear-gradient(90deg,rgba(172,131,66,.08),rgba(79,7,81,.05));border-bottom:1px solid rgba(172,131,66,.2);padding:8px 32px;font-size:11px;color:var(--gold);text-align:center;font-style:italic;}
 
-  .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:22px 32px;}
+  .summary{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:22px 32px;}
+
+  /* Clickable KPI cards reveal a spa drill-down popover */
+  .sc.clickable{cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .15s;}
+  .sc.clickable:hover{transform:translateY(-1px);border-color:rgba(79,7,81,0.3);box-shadow:0 4px 12px rgba(79,7,81,0.12);}
+  .sc.clickable .sc-lbl::after{content:" ▾";color:var(--muted);font-size:8px;letter-spacing:0;}
+  .sc-split{display:flex;gap:12px;align-items:baseline;}
+  .sc-split .sp{display:flex;flex-direction:column;align-items:center;}
+  .sc-split .sp .sp-n{font-family:'Playfair Display',serif;font-size:22px;font-weight:700;line-height:1;}
+  .sc-split .sp .sp-l{font-size:9px;color:var(--muted);margin-top:3px;letter-spacing:.4px;text-transform:uppercase;}
+  .sc-split .sp.down .sp-n{color:var(--danger);}
+  .sc-split .sp.up .sp-n{color:var(--ok);}
+
+  /* KPI drill-down popover */
+  .kpi-pop{position:fixed;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(79,7,81,0.18);padding:16px 18px;max-width:380px;max-height:420px;overflow-y:auto;z-index:300;}
+  .kpi-pop.hidden{display:none;}
+  .kpi-pop-title{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--text);margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+  .kpi-pop-close{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0;line-height:1;}
+  .kpi-pop-section{margin-bottom:12px;}
+  .kpi-pop-section:last-child{margin-bottom:0;}
+  .kpi-pop-section-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600;margin-bottom:6px;}
+  .kpi-pop-row{display:block;padding:7px 10px;border-radius:6px;color:var(--text);text-decoration:none;font-size:12px;line-height:1.4;border:1px solid transparent;margin-bottom:3px;}
+  .kpi-pop-row:hover{background:var(--s2);border-color:var(--border);}
+  .kpi-pop-row strong{color:var(--plum);}
+  .kpi-pop-row .kp-sub{display:block;color:var(--muted);font-size:10px;margin-top:1px;}
+  .kpi-pop-empty{font-size:12px;color:var(--muted);font-style:italic;padding:8px 0;}
 
   /* Risk/blocker exec callout — only shown on Home tab */
   .rb-banner{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:0 32px 4px;}
@@ -283,11 +308,21 @@
 </div>
 
 <div class="summary">
-  <div class="sc c"><div class="sc-lbl" id="s-soon-lbl">Launches Next 30 Days</div><div class="sc-val" id="s-soon" style="color:var(--ok)">—</div><div class="sc-sub" id="s-soon-sub">— GMV</div></div>
-  <div class="sc d"><div class="sc-lbl" id="s-del-lbl">Delayed</div><div class="sc-val" id="s-del" style="color:var(--danger)">—</div><div class="sc-sub" id="s-del-sub">top reasons</div></div>
-  <div class="sc b"><div class="sc-lbl" id="s-unk-lbl">Unknown Launch Date</div><div class="sc-val" id="s-unk" style="color:var(--gold)">—</div><div class="sc-sub" id="s-unk-sub">no target set</div></div>
+  <div class="sc c clickable" onclick="kpiPop('launches',this)"><div class="sc-lbl" id="s-soon-lbl">Launches Next 30 Days</div><div class="sc-val" id="s-soon" style="color:var(--ok)">—</div><div class="sc-sub" id="s-soon-sub">— GMV</div></div>
+  <div class="sc d clickable" onclick="kpiPop('delayed',this)"><div class="sc-lbl" id="s-del-lbl">Delayed</div><div class="sc-val" id="s-del" style="color:var(--danger)">—</div><div class="sc-sub" id="s-del-sub">top reasons</div></div>
+  <div class="sc b clickable" onclick="kpiPop('unknown',this)"><div class="sc-lbl" id="s-unk-lbl">Unknown Launch Date</div><div class="sc-val" id="s-unk" style="color:var(--gold)">—</div><div class="sc-sub" id="s-unk-sub">no target set</div></div>
+  <div class="sc d clickable" onclick="kpiPop('launchChange',this)" style="background:var(--surface);">
+    <div class="sc-lbl" id="s-lc-lbl">Launch Changes</div>
+    <div class="sc-split" style="margin-top:4px;">
+      <div class="sp down"><span class="sp-n" id="s-lc-down">—</span><span class="sp-l">↓ Pushed back</span></div>
+      <div class="sp up"><span class="sp-n" id="s-lc-up">—</span><span class="sp-l">↑ Moved up</span></div>
+    </div>
+  </div>
   <div class="sc a"><div class="sc-lbl" id="s-total-lbl">Active Accounts</div><div class="sc-val" id="s-total" style="color:var(--plum)">—</div><div class="sc-sub" id="s-total-sub">onboarding + pre-launch</div></div>
 </div>
+
+<!-- KPI drill-down popover — populated by kpiPop() -->
+<div class="kpi-pop hidden" id="kpi-pop"></div>
 
 <div class="toolbar">
   <input class="srch" id="srch" placeholder="Search practice…" oninput="render()">
@@ -1507,13 +1542,22 @@ function summary(){
     return !ld || c.launch_date_change_type === "removed";
   });
 
-  // 4) Total active in the current scope
+  // 4) Launch date changes — split into pushed back vs moved up
+  const pushedBack = scoped.filter(c => c.launch_date_change_type === "pushed_back");
+  const movedUp   = scoped.filter(c => c.launch_date_change_type === "moved_up");
+
+  // Stash spa lists for the drill-down popover (soon = launches in next 30d)
+  KPI_SPA_LISTS = { launches: soon, delayed, unknown, pushedBack, movedUp };
+
+  // 5) Total active in the current scope
   document.getElementById("s-soon").textContent  = soon.length;
   document.getElementById("s-soon-sub").textContent = soonGmv > 0 ? `${fmtRev(soonGmv)} GMV` : "no GMV booked";
   document.getElementById("s-del").textContent   = delayed.length;
   document.getElementById("s-del-sub").textContent = reasonSub;
   document.getElementById("s-unk").textContent   = unknown.length;
   document.getElementById("s-unk-sub").textContent = unknown.length ? "no target set" : "all dates set";
+  document.getElementById("s-lc-down").textContent = pushedBack.length;
+  document.getElementById("s-lc-up").textContent   = movedUp.length;
   document.getElementById("s-total").textContent = scoped.length;
 
   // Label tweak per tab — make the scope obvious
@@ -1531,6 +1575,113 @@ function summary(){
 
   updateLifecycleCounts();
 }
+
+// ── KPI drill-down popover ───────────────────────────────
+// Holds the latest filtered spa lists keyed by KPI type so kpiPop() can
+// render them without recomputing.
+let KPI_SPA_LISTS = { delayed: [], unknown: [], pushedBack: [], movedUp: [] };
+
+function kpiPop(kind, cardEl){
+  const pop = document.getElementById("kpi-pop");
+  if(!pop) return;
+  // Toggle off if clicking the same card
+  if(pop.dataset.kind === kind && !pop.classList.contains("hidden")){
+    pop.classList.add("hidden");
+    pop.dataset.kind = "";
+    return;
+  }
+  pop.dataset.kind = kind;
+
+  const fmtSpa = (c, extra) => {
+    const display = (c.name || "").replace(/-\s*\d+$/, "").trim();
+    const stage = (c.lifecyclestage || "").toLowerCase();
+    const stageLbl = stage === "onboarding" ? "Onboarding" : stage === "pre-launch" ? "Pre-launch" : stage;
+    const hsUrl = `https://app.hubspot.com/contacts/22420370/record/0-2/${c.hs_object_id}`;
+    const subParts = [stageLbl];
+    if(extra) subParts.push(extra);
+    return `<a class="kpi-pop-row" href="${hsUrl}" target="_blank"><strong>${escapeHtml(display)}</strong><span class="kp-sub">${subParts.filter(Boolean).join(" · ")}</span></a>`;
+  };
+
+  let title = "", body = "";
+  if(kind === "launches"){
+    // Sort by closest launch date first
+    const list = [...(KPI_SPA_LISTS.launches || [])].sort((a,b) => {
+      const aD = a.updated_target_launch_date || a.current_target_launch_date || a.initial_target_launch_date || "9999";
+      const bD = b.updated_target_launch_date || b.current_target_launch_date || b.initial_target_launch_date || "9999";
+      return aD.localeCompare(bD);
+    });
+    const totalGmv = list.reduce((sum, c) => sum + (parseFloat(c.monthly_revenue) || 0), 0);
+    title = `🚀 Launches Next 30 Days (${list.length})`;
+    const gmvLine = totalGmv > 0
+      ? `<div style="font-size:11px;color:var(--muted);margin:-4px 0 8px;">${fmtRev(totalGmv)} total GMV</div>`
+      : "";
+    body = gmvLine + (list.length
+      ? list.map(c => {
+          const ld = c.updated_target_launch_date || c.current_target_launch_date || c.initial_target_launch_date;
+          const dl = dUntil(ld);
+          const rev = fmtRev(c.monthly_revenue);
+          const parts = [];
+          parts.push(`Launch ${fDate(ld)}`);
+          if(dl !== null) parts.push(`${dl}d away`);
+          if(rev) parts.push(`${rev}/mo`);
+          return fmtSpa(c, parts.join(" · "));
+        }).join("")
+      : `<div class="kpi-pop-empty">No accounts launching in the next 30 days.</div>`);
+  } else if(kind === "delayed"){
+    const list = KPI_SPA_LISTS.delayed || [];
+    title = `⚠ Delayed Spas (${list.length})`;
+    body = list.length
+      ? list.map(c => fmtSpa(c, c.delayed_reason ? `Reason: ${c.delayed_reason}` : (c.moxie_onboarding_status_override || c.moxie_onboarding_status || ""))).join("")
+      : `<div class="kpi-pop-empty">No delayed spas — clean week.</div>`;
+  } else if(kind === "unknown"){
+    const list = KPI_SPA_LISTS.unknown || [];
+    title = `? Unknown Launch Date (${list.length})`;
+    body = list.length
+      ? list.map(c => fmtSpa(c, c.launch_date_change_type === "removed" ? "Target was removed" : "No target set")).join("")
+      : `<div class="kpi-pop-empty">All accounts have a target date.</div>`;
+  } else if(kind === "launchChange"){
+    const pb = KPI_SPA_LISTS.pushedBack || [];
+    const mu = KPI_SPA_LISTS.movedUp   || [];
+    title = `↕ Launch Changes (${pb.length + mu.length})`;
+    const renderList = (label, color, items) => {
+      if(!items.length) return `<div class="kpi-pop-section"><div class="kpi-pop-section-lbl" style="color:${color};">${label} (0)</div><div class="kpi-pop-empty">None.</div></div>`;
+      return `<div class="kpi-pop-section"><div class="kpi-pop-section-lbl" style="color:${color};">${label} (${items.length})</div>${items.map(c => {
+        const from = c.launch_date_previous_value ? fDate(c.launch_date_previous_value) : "—";
+        const to   = c.updated_target_launch_date || c.current_target_launch_date;
+        const detail = to ? `from ${from} → ${fDate(to)}` : `was ${from}`;
+        return fmtSpa(c, detail);
+      }).join("")}</div>`;
+    };
+    body = renderList("↓ Pushed back", "var(--danger)", pb) + renderList("↑ Moved up", "var(--ok)", mu);
+  }
+
+  pop.innerHTML = `
+    <div class="kpi-pop-title">${title}<button class="kpi-pop-close" onclick="document.getElementById('kpi-pop').classList.add('hidden')" title="Close">✕</button></div>
+    ${body}
+  `;
+  pop.classList.remove("hidden");
+
+  // Position below the card, kept on-screen
+  const rect = cardEl.getBoundingClientRect();
+  const popWidth = Math.min(380, window.innerWidth - 32);
+  let left = rect.left;
+  if(left + popWidth > window.innerWidth - 16) left = window.innerWidth - popWidth - 16;
+  pop.style.left = `${Math.max(16, left)}px`;
+  pop.style.top  = `${rect.bottom + 8}px`;
+  pop.style.width = `${popWidth}px`;
+}
+
+// Close popover on outside click
+document.addEventListener("click", (e) => {
+  const pop = document.getElementById("kpi-pop");
+  if(!pop || pop.classList.contains("hidden")) return;
+  if(pop.contains(e.target)) return;
+  // The click handler that opened the popover already toggles off if clicking
+  // the same card; only close here if clicking elsewhere
+  if(e.target.closest(".sc.clickable")) return;
+  pop.classList.add("hidden");
+  pop.dataset.kind = "";
+});
 
 // Risks/Blockers banner — shown on Home tab to give exec stakeholders
 // instant visibility into where the trouble is. Pulls from both AI-derived
