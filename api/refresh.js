@@ -389,7 +389,8 @@ async function fetchHubSpotCompanies(token) {
   // Properties to pull. These match Moxie's HubSpot internal names exactly.
   const REQUESTED_PROPS = [
     "name", "state", "city",
-    "medspa_id",                            // Moxie internal medspa id — joins to Deal.medspa_id__sync_
+    "medspa_id",                            // legacy Moxie internal medspa id (kept for back-compat)
+    "medspa_id_unique",                     // canonical Moxie id — joins to Deal.medspa_id__sync_
     "provider_segment_pre_launch",
     "provider_segment__post_launch_",
     "lifecyclestage",
@@ -497,7 +498,11 @@ async function fetchHubSpotCompanies(token) {
     const target = p.updated_target_launch_date || p.current_target_launch_date;
     return {
       hs_object_id: row.id,
-      medspa_id: p.medspa_id || null,
+      // Prefer medspa_id_unique (canonical join key) and fall back to legacy
+      // medspa_id field so the deal-join still works during migration.
+      medspa_id: p.medspa_id_unique || p.medspa_id || null,
+      medspa_id_unique: p.medspa_id_unique || null,
+      medspa_id_legacy: p.medspa_id || null,
       name: p.name || null,
       state: p.state || null,
       city: p.city || null,
@@ -522,6 +527,7 @@ async function fetchHubSpotCompanies(token) {
       practice_success_manager: p.provider_success_manager || null,
       practice_success_manager_name: null,
       monthly_revenue: null,                   // populated by enrichWithDealRevenue
+      current_emr: null,                       // populated by enrichWithDealRevenue (deal.current_emr)
       delayed_reason: p.delayed_reason || null,
       pre_onboarding_reason: p.pre_onboarding_reason || null,
       // Populated by fetchLifecycleStageHistory — when the company most recently
@@ -582,7 +588,7 @@ async function enrichWithDealRevenue(companies, token) {
                 { propertyName: "medspa_id__sync_", operator: "IN", values: chunk }
               ]
             }],
-            properties: ["medspa_id__sync_", "monthly_medspa_revenue", "dealname", "dealstage", "createdate"],
+            properties: ["medspa_id__sync_", "monthly_medspa_revenue", "current_emr", "dealname", "dealstage", "createdate"],
             sorts: [{ propertyName: "createdate", direction: "DESCENDING" }],
             limit: 100,
             after
@@ -597,11 +603,19 @@ async function enrichWithDealRevenue(companies, token) {
         for (const deal of (data.results || [])) {
           dealCount++;
           const id = String(deal.properties?.medspa_id__sync_ || "");
-          const rev = parseFloat(deal.properties?.monthly_medspa_revenue);
-          if (!id || isNaN(rev) || rev <= 0) continue;
+          if (!id) continue;
           const c = medspaToCompany[id];
           if (!c) continue;
-          // If the company already has a revenue (from an earlier deal), keep the higher one
+
+          // EMR — single-select on the Deal; always populate (no revenue check needed)
+          const emr = (deal.properties?.current_emr || "").trim();
+          if (emr && !c.current_emr) {
+            c.current_emr = emr;
+          }
+
+          // Revenue (only consider deals with a positive monthly figure)
+          const rev = parseFloat(deal.properties?.monthly_medspa_revenue);
+          if (isNaN(rev) || rev <= 0) continue;
           if (!c.monthly_revenue || rev > c.monthly_revenue) {
             c.monthly_revenue = rev;
             matched++;
