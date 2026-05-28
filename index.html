@@ -1297,12 +1297,19 @@ function render(){
     curLifecycle === "onboarding" ? "Days in Onboarding" :
     curLifecycle === "post-launch customer" ? "Days Post-launch" :
     "Days In";
-  const cols=["Practice","Mo. Revenue", daysLabel, "Target Launch","Launch Change","Manager",""];
+  // Home view drops Manager (cleaner exec landing). Other tabs keep it.
+  const isHome = curLifecycle === "home";
+  const cols = isHome
+    ? ["Practice","Mo. Revenue", daysLabel, "Target Launch","Launch Change",""]
+    : ["Practice","Mo. Revenue", daysLabel, "Target Launch","Launch Change","Manager",""];
+  const gridCols = isHome
+    ? "2fr 100px 90px 120px 160px 28px"
+    : "2fr 100px 90px 120px 160px 120px 28px";
   const existingHdr = document.querySelector('.rows-header');
   if(existingHdr) existingHdr.remove();
   const hdr=document.createElement('div');
   hdr.className='rows-header';
-  hdr.style.cssText='display:grid;grid-template-columns:2fr 100px 90px 120px 160px 120px 28px;padding:0 0 6px 0;';
+  hdr.style.cssText=`display:grid;grid-template-columns:${gridCols};padding:0 0 6px 0;`;
   hdr.innerHTML=cols.map((c,i)=>`<div style="padding:0 16px;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.4px;font-weight:600;${i===2?'text-align:center':''}">${c}</div>`).join("");
   wrap.before(hdr);
 
@@ -1372,7 +1379,7 @@ function render(){
 
     return`
     <div class="row-card" id="card-${i}" style="animation-delay:${Math.min(i*.04,.4)}s">
-      <div class="row-main" onclick="toggle(${i})">
+      <div class="row-main" onclick="toggle(${i})" style="grid-template-columns:${gridCols}">
         <div class="cell">
           <div class="pco">
             <div class="av" style="background:${color}22;color:${color}">${ini(c.name)}</div>
@@ -1414,9 +1421,7 @@ function render(){
         <div class="cell">
           ${renderLaunchChange(c)}
         </div>
-        <div class="cell">
-          ${own?`<span class="mgr"><span class="md" style="background:${own.col}"></span>${own.name}</span>`:`<span style="color:var(--muted)">—</span>`}
-        </div>
+        ${isHome ? '' : `<div class="cell">${own?`<span class="mgr"><span class="md" style="background:${own.col}"></span>${own.name}</span>`:`<span style="color:var(--muted)">—</span>`}</div>`}
         <div class="cell" style="text-align:center"><span class="chev">▼</span></div>
       </div>
 
