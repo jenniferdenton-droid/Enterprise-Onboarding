@@ -389,8 +389,7 @@ async function fetchHubSpotCompanies(token) {
   // Properties to pull. These match Moxie's HubSpot internal names exactly.
   const REQUESTED_PROPS = [
     "name", "state", "city",
-    "medspa_id",                            // legacy Moxie internal medspa id (kept for back-compat)
-    "medspa_id_unique",                     // canonical Moxie id — joins to Deal.medspa_id__sync_
+    "medspa_id",                            // Moxie internal medspa id — joins to Deal.medspa_id__sync_
     "provider_segment_pre_launch",
     "provider_segment__post_launch_",
     "lifecyclestage",
@@ -498,11 +497,7 @@ async function fetchHubSpotCompanies(token) {
     const target = p.updated_target_launch_date || p.current_target_launch_date;
     return {
       hs_object_id: row.id,
-      // Prefer medspa_id_unique (canonical join key) and fall back to legacy
-      // medspa_id field so the deal-join still works during migration.
-      medspa_id: p.medspa_id_unique || p.medspa_id || null,
-      medspa_id_unique: p.medspa_id_unique || null,
-      medspa_id_legacy: p.medspa_id || null,
+      medspa_id: p.medspa_id || null,
       name: p.name || null,
       state: p.state || null,
       city: p.city || null,
@@ -572,6 +567,7 @@ async function enrichWithDealRevenue(companies, token) {
 
   let matched = 0;
   let dealCount = 0;
+  let emrMatched = 0;
   let lastError = null;
 
   for (const chunk of chunks) {
@@ -607,10 +603,13 @@ async function enrichWithDealRevenue(companies, token) {
           const c = medspaToCompany[id];
           if (!c) continue;
 
-          // EMR — single-select on the Deal; always populate (no revenue check needed)
+          // EMR — Deal property `current_emr` (single-select). First non-empty
+          // value across deals for this medspa wins. Count separately from
+          // revenue matches so we can diagnose missing EMR.
           const emr = (deal.properties?.current_emr || "").trim();
           if (emr && !c.current_emr) {
             c.current_emr = emr;
+            emrMatched++;
           }
 
           // Revenue (only consider deals with a positive monthly figure)
@@ -633,7 +632,8 @@ async function enrichWithDealRevenue(companies, token) {
     ok: !lastError,
     companies_with_medspa_id: medspaIds.length,
     deals_returned: dealCount,
-    matched,
+    revenue_matched: matched,
+    emr_matched: emrMatched,
     error: lastError
   };
 }
