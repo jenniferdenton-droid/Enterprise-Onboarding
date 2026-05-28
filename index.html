@@ -41,7 +41,15 @@
 
   .static-banner{background:linear-gradient(90deg,rgba(172,131,66,.08),rgba(79,7,81,.05));border-bottom:1px solid rgba(172,131,66,.2);padding:8px 32px;font-size:11px;color:var(--gold);text-align:center;font-style:italic;}
 
-  .summary{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:22px 32px;}
+  .summary{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;padding:22px 32px;}
+
+  /* Home banner — small note explaining what's in scope */
+  .home-note{padding:12px 32px 0;font-size:12px;color:var(--muted);font-style:italic;display:flex;align-items:center;gap:8px;}
+  .home-note .home-note-icon{color:var(--plum);font-style:normal;}
+
+  /* Hoverable KPI titles — title attribute gives default browser tooltip,
+     this .has-tip class adds a subtle dotted underline so users know to hover. */
+  .has-tip{border-bottom:1px dotted var(--muted);cursor:help;}
 
   /* Clickable KPI cards reveal a spa drill-down popover */
   .sc.clickable{cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .15s;}
@@ -68,25 +76,6 @@
   .kpi-pop-row .kp-sub{display:block;color:var(--muted);font-size:10px;margin-top:1px;}
   .kpi-pop-empty{font-size:12px;color:var(--muted);font-style:italic;padding:8px 0;}
 
-  /* Risk/blocker exec callout — only shown on Home tab */
-  .rb-banner{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:0 32px 4px;}
-  .rb-banner.hidden{display:none;}
-  .rb-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 22px;box-shadow:0 1px 4px rgba(79,7,81,0.06);position:relative;overflow:hidden;}
-  .rb-card.blocker{border-left:4px solid var(--danger);}
-  .rb-card.risk{border-left:4px solid var(--warn);}
-  .rb-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;gap:14px;}
-  .rb-title{font-family:'Playfair Display',serif;font-size:16px;font-weight:700;color:var(--text);}
-  .rb-title .rb-icon{margin-right:6px;}
-  .rb-num{font-family:'Playfair Display',serif;font-size:32px;font-weight:700;line-height:1;}
-  .rb-card.blocker .rb-num{color:var(--danger);}
-  .rb-card.risk .rb-num{color:var(--warn);}
-  .rb-spas{font-size:11px;color:var(--muted);margin-top:2px;}
-  .rb-split{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;}
-  .rb-pill{font-size:11px;color:var(--text);background:var(--s2);border:1px solid var(--border);padding:5px 10px;border-radius:8px;}
-  .rb-pill strong{font-weight:700;color:var(--plum);margin-right:4px;}
-  .rb-top{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5;}
-  .rb-top a{color:var(--plum);text-decoration:none;font-weight:600;cursor:pointer;}
-  .rb-top a:hover{text-decoration:underline;}
   .sc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;position:relative;overflow:hidden;box-shadow:0 1px 4px rgba(79,7,81,0.06);}
   .sc::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
   .sc.a::after{background:var(--plum)} .sc.b::after{background:var(--gold)} .sc.c::after{background:var(--ok)} .sc.d::after{background:var(--rose)}
@@ -281,44 +270,25 @@
   <button class="lc-tab"    data-lc="archived"             onclick="lcSwitch(this)">📁 Archived <span class="lc-count" id="lc-cnt-archived">0</span></button>
 </div>
 
-<!-- ── Exec callout: Blockers + Risks (Home tab only) ──────── -->
-<div class="rb-banner hidden" id="rb-banner">
-  <div class="rb-card blocker">
-    <div class="rb-head">
-      <div>
-        <div class="rb-title"><span class="rb-icon">🚨</span>Blockers</div>
-        <div class="rb-spas" id="rb-blocker-spas">— spas affected</div>
-      </div>
-      <div class="rb-num" id="rb-blocker-num">—</div>
-    </div>
-    <div class="rb-split" id="rb-blocker-split"></div>
-    <div class="rb-top" id="rb-blocker-top"></div>
-  </div>
-  <div class="rb-card risk">
-    <div class="rb-head">
-      <div>
-        <div class="rb-title"><span class="rb-icon">⚠️</span>Risks</div>
-        <div class="rb-spas" id="rb-risk-spas">— spas affected</div>
-      </div>
-      <div class="rb-num" id="rb-risk-num">—</div>
-    </div>
-    <div class="rb-split" id="rb-risk-split"></div>
-    <div class="rb-top" id="rb-risk-top"></div>
-  </div>
+<!-- Home-only note explaining scope -->
+<div class="home-note" id="home-note">
+  <span class="home-note-icon">ℹ</span>
+  This homepage only includes <strong style="color:var(--text);font-style:normal;">Pre-launch + Onboarding</strong> accounts. Use the tabs above for any single stage. <span style="margin-left:8px;color:var(--plum);font-style:normal;">Hover any title for definition.</span>
 </div>
 
 <div class="summary">
-  <div class="sc c clickable" onclick="kpiPop('launches',this)"><div class="sc-lbl" id="s-soon-lbl">Launches Next 30 Days</div><div class="sc-val" id="s-soon" style="color:var(--ok)">—</div><div class="sc-sub" id="s-soon-sub">— GMV</div></div>
-  <div class="sc d clickable" onclick="kpiPop('delayed',this)"><div class="sc-lbl" id="s-del-lbl">Delayed</div><div class="sc-val" id="s-del" style="color:var(--danger)">—</div><div class="sc-sub" id="s-del-sub">top reasons</div></div>
-  <div class="sc b clickable" onclick="kpiPop('unknown',this)"><div class="sc-lbl" id="s-unk-lbl">Unknown Launch Date</div><div class="sc-val" id="s-unk" style="color:var(--gold)">—</div><div class="sc-sub" id="s-unk-sub">no target set</div></div>
+  <div class="sc c clickable" onclick="kpiPop('launches',this)"><div class="sc-lbl"><span class="has-tip" title="Count of medspas in Pre-launch + Onboarding whose target launch date is in the next 30 days. The sub-line is the sum of their booked monthly revenue (GMV).">Launches Next 30 Days</span></div><div class="sc-val" id="s-soon" style="color:var(--ok)">—</div><div class="sc-sub" id="s-soon-sub">— GMV</div></div>
+  <div class="sc d clickable" onclick="kpiPop('delayed',this)"><div class="sc-lbl"><span class="has-tip" title="Medspas with onboarding status marked Delayed / On hold / At risk in HubSpot, OR with a delayed_reason set. Click to see which spas + their reasons.">Delayed</span></div><div class="sc-val" id="s-del" style="color:var(--danger)">—</div><div class="sc-sub" id="s-del-sub">top reasons</div></div>
+  <div class="sc b clickable" onclick="kpiPop('unknown',this)"><div class="sc-lbl"><span class="has-tip" title="Medspas with no Target Launch date set in HubSpot, OR whose date was explicitly removed. Click to see which spas.">Unknown Launch Date</span></div><div class="sc-val" id="s-unk" style="color:var(--gold)">—</div><div class="sc-sub" id="s-unk-sub">no target set</div></div>
   <div class="sc d clickable" onclick="kpiPop('launchChange',this)" style="background:var(--surface);">
-    <div class="sc-lbl" id="s-lc-lbl">Launch Changes</div>
+    <div class="sc-lbl"><span class="has-tip" title="Medspas whose target launch date moved since first set. ↓ Pushed back = launch is now later; ↑ Moved up = launch is now sooner. Click to see from/to dates.">Launch Changes</span></div>
     <div class="sc-split" style="margin-top:4px;">
       <div class="sp down"><span class="sp-n" id="s-lc-down">—</span><span class="sp-l">↓ Pushed back</span></div>
       <div class="sp up"><span class="sp-n" id="s-lc-up">—</span><span class="sp-l">↑ Moved up</span></div>
     </div>
   </div>
-  <div class="sc a"><div class="sc-lbl" id="s-total-lbl">Active Accounts</div><div class="sc-val" id="s-total" style="color:var(--plum)">—</div><div class="sc-sub" id="s-total-sub">onboarding + pre-launch</div></div>
+  <div class="sc b"><div class="sc-lbl"><span class="has-tip" title="Average days_in_onboarding (from HubSpot Company property) across all Pre-launch + Onboarding spas. Each spa's individual value shows on its row.">Avg Days in Onboarding</span></div><div class="sc-val" id="s-avg" style="color:var(--gold)">—</div><div class="sc-sub" id="s-avg-sub">across pre-launch + onboarding</div></div>
+  <div class="sc a"><div class="sc-lbl"><span class="has-tip" title="Total medspas in Pre-launch + Onboarding lifecycle stages (excludes Post-launch + Archived).">Active Accounts</span></div><div class="sc-val" id="s-total" style="color:var(--plum)">—</div><div class="sc-sub" id="s-total-sub">onboarding + pre-launch</div></div>
 </div>
 
 <!-- KPI drill-down popover — populated by kpiPop() -->
@@ -880,9 +850,23 @@ function lcSwitch(btn){
   curLifecycle = btn.dataset.lc;
   document.querySelectorAll(".lc-tab").forEach(b=>b.classList.remove("on"));
   btn.classList.add("on");
+  applyHomeChrome();
   summary();
   render();
   renderChannelPanel();
+}
+
+// Toggles visibility of Channel Management + Weekly Digest panels — they
+// clutter the exec landing view, so Home hides them. They're still available
+// on any of the segment tabs.
+function applyHomeChrome(){
+  const isHome = curLifecycle === "home";
+  const chPanel = document.getElementById("ch-panel");
+  const rcpPanel = document.getElementById("rcp-panel");
+  const homeNote = document.getElementById("home-note");
+  if(chPanel)  chPanel.style.display  = isHome ? "none" : "";
+  if(rcpPanel) rcpPanel.style.display = isHome ? "none" : "";
+  if(homeNote) homeNote.style.display = isHome ? "" : "none";
 }
 
 function updateLifecycleCounts(){
@@ -1308,7 +1292,7 @@ function render(){
   // Build/update the header — recreated on every render so the Days column
   // label can reflect the active lifecycle tab.
   const daysLabel =
-    curLifecycle === "home" ? "Days in Stage" :
+    curLifecycle === "home" ? "Days in Onboarding" :
     curLifecycle === "pre-launch" ? "Days in Pre-launch" :
     curLifecycle === "onboarding" ? "Days in Onboarding" :
     curLifecycle === "post-launch customer" ? "Days Post-launch" :
@@ -1326,15 +1310,20 @@ function render(){
     const color   =colFor(c.name);
     const num     =(c.name||"").match(/-\s*(\d+)$/)?.[1]||"";
     const display =(c.name||"").replace(/-\s*\d+$/,"").trim();
-    // Days column is per-ROW lifecycle aware. On Home tab the column shows
-    // each row's days in its OWN current stage, so a pre-launch row shows
-    // days_in_pre_launch and an onboarding row shows days_in_onboarding.
+    // Days column logic:
+    //  - HOME tab: ALWAYS days_in_onboarding (so the per-spa numbers add up
+    //    cleanly to the "Avg Days in Onboarding" KPI shown above).
+    //  - Pre-launch tab: days since lifecycle entered pre-launch.
+    //  - Post-launch tab: days since lifecycle entered post-launch.
+    //  - Onboarding tab: days_in_onboarding.
     const stage = (c.lifecyclestage || "").toLowerCase();
-    const days  = stage === "pre-launch"
-      ? (c.days_in_pre_launch != null ? parseInt(c.days_in_pre_launch) : dSince(c.pre_launch_entered_at))
-      : stage === "post-launch customer"
-        ? (c.days_in_post_launch != null ? parseInt(c.days_in_post_launch) : dSince(c.post_launch_entered_at))
-        : (parseInt(c.days_in_onboarding) || dSince(c.kickoff_date));
+    const days = curLifecycle === "home"
+      ? (parseInt(c.days_in_onboarding) || dSince(c.kickoff_date))
+      : stage === "pre-launch"
+        ? (c.days_in_pre_launch != null ? parseInt(c.days_in_pre_launch) : dSince(c.pre_launch_entered_at))
+        : stage === "post-launch customer"
+          ? (c.days_in_post_launch != null ? parseInt(c.days_in_post_launch) : dSince(c.post_launch_entered_at))
+          : (parseInt(c.days_in_onboarding) || dSince(c.kickoff_date));
     const launchRemoved = c.launch_date_change_type === "removed";
     // If launch date was explicitly removed, don't fall back to initial — show empty
     const ld      = launchRemoved ? null : (c.updated_target_launch_date || c.current_target_launch_date || c.initial_target_launch_date);
@@ -1396,6 +1385,7 @@ function render(){
               <div style="display:flex;align-items:center;gap:5px;margin-top:3px;flex-wrap:wrap">
                 ${stateStr?`<span style="font-size:9px;font-weight:600;letter-spacing:.8px;color:#fff;background:var(--plum);padding:1px 6px;border-radius:3px">${stateStr}</span>`:''}
                 ${curLifecycle==="home"&&stage?`<span style="font-size:9px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:${stage==="onboarding"?'var(--plum)':stage==="pre-launch"?'var(--gold)':'var(--muted)'};background:${stage==="onboarding"?'rgba(79,7,81,.08)':stage==="pre-launch"?'rgba(172,131,66,.1)':'rgba(122,107,128,.08)'};padding:1px 7px;border-radius:10px;border:1px solid ${stage==="onboarding"?'rgba(79,7,81,.2)':stage==="pre-launch"?'rgba(172,131,66,.25)':'rgba(122,107,128,.2)'};">${stage==="pre-launch"?"Pre-launch":stage==="onboarding"?"Onboarding":stage}</span>`:''}
+                ${c.current_emr?`<span title="Current EMR (from HubSpot Deal)" style="font-size:9px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:var(--forest);background:var(--sage);padding:1px 7px;border-radius:10px;border:1px solid rgba(26,45,43,.25);">EMR: ${escapeHtml(c.current_emr)}</span>`:''}
                 ${num?`<span class="pnum">#${num}</span>`:''}
                 ${chList.length
                   ? chList.map(ch => `<a onclick="event.stopPropagation()" href="https://slack.com/app_redirect?channel=${ch.slack_channel_id}" target="_blank" title="Open #${escapeHtml(ch.slack_channel_name||'')} in Slack" style="font-size:10px;font-weight:600;color:var(--plum);background:var(--lilac);border:1px solid rgba(79,7,81,0.15);padding:1px 7px;border-radius:10px;text-decoration:none;font-family:'DM Sans',sans-serif;">#${escapeHtml(ch.slack_channel_name||ch.slack_channel_id||'channel')}</a>`).join("") +
@@ -1440,6 +1430,7 @@ function render(){
             <div><div class="di-lbl">Practice Success Manager</div><div class="di-val">${psmName?escapeHtml(psmName):"—"}</div></div>
             ${c.city?`<div><div class="di-lbl">Location</div><div class="di-val">${c.city}${stateStr?', '+stateStr:''}</div></div>`:''}
             <div><div class="di-lbl">Monthly Revenue (L3M)</div><div class="di-val" style="color:${rev?'var(--ok)':'var(--muted)'};${rev?'':'font-style:italic;'}">${rev||'TBD'}</div></div>
+            <div><div class="di-lbl" title="EMR pulled from Deal.current_emr">Current EMR</div><div class="di-val" style="color:${c.current_emr?'var(--text)':'var(--muted)'};${c.current_emr?'':'font-style:italic;'}">${c.current_emr?escapeHtml(c.current_emr):'TBD'}</div></div>
             ${c.days_to_close?`<div><div class="di-lbl">Days to Close</div><div class="di-val">${c.days_to_close}d</div></div>`:''}
           </div>
           ${c.delayed_reason?`<div style="margin-top:12px;padding:10px 12px;background:rgba(184,85,85,.06);border-left:3px solid var(--danger);border-radius:4px;"><div class="di-lbl" style="color:var(--danger);">⚠ Delayed Reason</div><div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.5;">${escapeHtml(c.delayed_reason)}</div></div>`:''}
@@ -1549,7 +1540,15 @@ function summary(){
   // Stash spa lists for the drill-down popover (soon = launches in next 30d)
   KPI_SPA_LISTS = { launches: soon, delayed, unknown, pushedBack, movedUp };
 
-  // 5) Total active in the current scope
+  // 5) Average days_in_onboarding across scoped spas
+  // Uses the raw HubSpot days_in_onboarding field on every account — same
+  // metric per spa as we show on the row, so the average lines up visibly.
+  const daysVals = scoped
+    .map(c => parseInt(c.days_in_onboarding))
+    .filter(v => !isNaN(v) && v > 0);
+  const avgDays = daysVals.length ? Math.round(daysVals.reduce((a,b) => a+b, 0) / daysVals.length) : null;
+
+  // 6) Total active in the current scope
   document.getElementById("s-soon").textContent  = soon.length;
   document.getElementById("s-soon-sub").textContent = soonGmv > 0 ? `${fmtRev(soonGmv)} GMV` : "no GMV booked";
   document.getElementById("s-del").textContent   = delayed.length;
@@ -1558,6 +1557,10 @@ function summary(){
   document.getElementById("s-unk-sub").textContent = unknown.length ? "no target set" : "all dates set";
   document.getElementById("s-lc-down").textContent = pushedBack.length;
   document.getElementById("s-lc-up").textContent   = movedUp.length;
+  document.getElementById("s-avg").textContent   = avgDays !== null ? `${avgDays}d` : "—";
+  document.getElementById("s-avg-sub").textContent = daysVals.length
+    ? `n=${daysVals.length} · range ${Math.min(...daysVals)}–${Math.max(...daysVals)}d`
+    : "no data";
   document.getElementById("s-total").textContent = scoped.length;
 
   // Label tweak per tab — make the scope obvious
@@ -1569,9 +1572,6 @@ function summary(){
     else if(curLifecycle === "post-launch customer") totalSub.textContent = "post-launch";
     else if(curLifecycle === "archived") totalSub.textContent = "archived";
   }
-
-  // ── Exec callout: Risks + Blockers (Home tab only) ─────────
-  renderRiskBlockerBanner(scoped);
 
   updateLifecycleCounts();
 }
@@ -1682,76 +1682,6 @@ document.addEventListener("click", (e) => {
   pop.classList.add("hidden");
   pop.dataset.kind = "";
 });
-
-// Risks/Blockers banner — shown on Home tab to give exec stakeholders
-// instant visibility into where the trouble is. Pulls from both AI-derived
-// Slack notes (getNotesFor) and manual notes (c.manual_notes).
-function renderRiskBlockerBanner(scope){
-  const banner = document.getElementById("rb-banner");
-  if(!banner) return;
-  if(curLifecycle !== "home"){
-    banner.classList.add("hidden");
-    return;
-  }
-  banner.classList.remove("hidden");
-
-  // Walk all scoped accounts and aggregate counts + per-spa totals + stage split
-  let totBlock = 0, totRisk = 0;
-  const blockerSpas = []; // [{name, count, stage, hsId}]
-  const riskSpas = [];
-  let bOnb = 0, bPre = 0, rOnb = 0, rPre = 0;
-
-  for(const c of scope){
-    const stage = (c.lifecyclestage || "").toLowerCase();
-    const allNotes = [...(getNotesFor(c.name) || []), ...((c.manual_notes) || [])];
-    let bCount = 0, rCount = 0;
-    for(const n of allNotes){
-      if(n.type === "blocker") bCount++;
-      else if(n.type === "risk") rCount++;
-    }
-    if(bCount > 0){
-      totBlock += bCount;
-      blockerSpas.push({ name: c.name, count: bCount, stage, hsId: c.hs_object_id });
-      if(stage === "onboarding") bOnb += bCount;
-      else if(stage === "pre-launch") bPre += bCount;
-    }
-    if(rCount > 0){
-      totRisk += rCount;
-      riskSpas.push({ name: c.name, count: rCount, stage, hsId: c.hs_object_id });
-      if(stage === "onboarding") rOnb += rCount;
-      else if(stage === "pre-launch") rPre += rCount;
-    }
-  }
-
-  // Top 3 spas by count for each bucket — exec sees "where's the heat"
-  const topN = (arr) => arr
-    .sort((a,b) => b.count - a.count)
-    .slice(0,3)
-    .map(s => {
-      const display = (s.name || "").replace(/-\s*\d+$/, "").trim();
-      return `<a href="https://app.hubspot.com/contacts/22420370/record/0-2/${s.hsId}" target="_blank">${escapeHtml(display)}</a> <span style="color:var(--muted);">(${s.count})</span>`;
-    }).join(" · ");
-
-  // Blocker card
-  document.getElementById("rb-blocker-num").textContent = totBlock;
-  document.getElementById("rb-blocker-spas").textContent = `${blockerSpas.length} spa${blockerSpas.length===1?"":"s"} affected`;
-  document.getElementById("rb-blocker-split").innerHTML = totBlock > 0
-    ? `<div class="rb-pill"><strong>${bOnb}</strong> Onboarding</div><div class="rb-pill"><strong>${bPre}</strong> Pre-launch</div>`
-    : `<div class="rb-pill" style="color:var(--ok);"><strong style="color:var(--ok);">✓</strong> No active blockers</div>`;
-  document.getElementById("rb-blocker-top").innerHTML = blockerSpas.length
-    ? `<strong style="color:var(--text);">Most affected:</strong> ${topN(blockerSpas)}`
-    : "";
-
-  // Risk card
-  document.getElementById("rb-risk-num").textContent = totRisk;
-  document.getElementById("rb-risk-spas").textContent = `${riskSpas.length} spa${riskSpas.length===1?"":"s"} affected`;
-  document.getElementById("rb-risk-split").innerHTML = totRisk > 0
-    ? `<div class="rb-pill"><strong>${rOnb}</strong> Onboarding</div><div class="rb-pill"><strong>${rPre}</strong> Pre-launch</div>`
-    : `<div class="rb-pill" style="color:var(--ok);"><strong style="color:var(--ok);">✓</strong> No active risks</div>`;
-  document.getElementById("rb-risk-top").innerHTML = riskSpas.length
-    ? `<strong style="color:var(--text);">Most affected:</strong> ${topN(riskSpas)}`
-    : "";
-}
 
 // ── Sign-in / Password management ──
 // One-shot password entry up-front. Once signed in, all manager actions
@@ -2158,6 +2088,7 @@ async function bootstrapFromCache(){
 
 (async () => {
   renderSignInButton(); // sets initial Sign in / Signed in state
+  applyHomeChrome();    // hide channel/recipient panels on the Home landing tab
   const loadedFromCache = await bootstrapFromCache();
   summary();
   render();
