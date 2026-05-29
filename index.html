@@ -1582,7 +1582,17 @@ function summary(){
       reasonCounts[t] = (reasonCounts[t] || 0) + 1;
     }
   }
-  const sortedReasons = Object.entries(reasonCounts).sort((a,b) => b[1] - a[1]);
+  // Sort: pinned reasons (e.g. Moxie Suite Features) first, then by count desc.
+  // Moxie wants Moxie Suite Features called out as the top product-issue category.
+  const PINNED_REASONS = ["Moxie Suite Features"];
+  const sortedReasons = Object.entries(reasonCounts).sort((a, b) => {
+    const aPinIdx = PINNED_REASONS.indexOf(a[0]);
+    const bPinIdx = PINNED_REASONS.indexOf(b[0]);
+    if (aPinIdx !== -1 && bPinIdx === -1) return -1;
+    if (bPinIdx !== -1 && aPinIdx === -1) return 1;
+    if (aPinIdx !== -1 && bPinIdx !== -1) return aPinIdx - bPinIdx;
+    return b[1] - a[1];
+  });
   const reasonSub = sortedReasons.length
     ? sortedReasons.slice(0,2).map(([r,n]) => `${n}× ${r}`).join(" · ")
     : "no delays";
@@ -1641,14 +1651,16 @@ function summary(){
   updateLifecycleCounts();
 }
 
-// Renders the always-visible Delayed Reasons breakdown on the Home tab.
+// Renders the always-visible Delayed Reasons breakdown on Home + Onboarding tabs.
 // Each reason category shows as a pill with its spa count (e.g. "5 Data Migration").
-// Multi-reason spas are counted once per reason — same logic as the KPI sub-line
-// and the Delayed popover so the numbers line up everywhere.
+// Pinned reasons (Moxie Suite Features) are highlighted in plum since they signal
+// product-side issues that engineering / product should care about.
 function renderDelayedReasons(delayedCount, reasonsSorted){
   const wrap = document.getElementById("dr-section");
   if(!wrap) return;
-  if(curLifecycle !== "home"){
+  // Show on Home (combined view) and Onboarding tab so OM team can see breakdown.
+  const showHere = curLifecycle === "home" || curLifecycle === "onboarding" || curLifecycle === "pre-launch";
+  if(!showHere){
     wrap.classList.add("hidden");
     return;
   }
@@ -1661,11 +1673,18 @@ function renderDelayedReasons(delayedCount, reasonsSorted){
     pills.innerHTML = `<div class="dr-empty">✓ No active delayed reasons.</div>`;
     return;
   }
+  const PINNED = new Set(["Moxie Suite Features"]);
   const total = reasonsSorted.reduce((a, [,n]) => a + n, 0);
   sub.textContent = `${delayedCount} spa${delayedCount===1?"":"s"} delayed · ${reasonsSorted.length} unique reason${reasonsSorted.length===1?"":"s"} · ${total} tag${total===1?"":"s"} total`;
   pills.innerHTML = reasonsSorted
-    .map(([r, n]) => `<div class="dr-pill"><strong>${n}</strong>${escapeHtml(r)}</div>`)
-    .join("");
+    .map(([r, n]) => {
+      const isPinned = PINNED.has(r);
+      const style = isPinned
+        ? `background:rgba(79,7,81,.10);border:1px solid rgba(79,7,81,.35);`
+        : "";
+      const strongStyle = isPinned ? `color:var(--plum);` : "";
+      return `<div class="dr-pill" style="${style}"><strong style="${strongStyle}">${n}</strong>${escapeHtml(r)}${isPinned?' <span style="font-size:9px;color:var(--plum);font-weight:600;margin-left:4px;text-transform:uppercase;letter-spacing:.5px;">product</span>':''}</div>`;
+    }).join("");
 }
 
 // ── KPI drill-down popover ───────────────────────────────
