@@ -1165,12 +1165,24 @@ function spaDelayedReason(c){
   return c.delayed_reason_pre_launch || c.delayed_reason || null;
 }
 
-// Returns the per-spa list of individual reason tags (HubSpot multi-select returns
-// semicolon-separated values like "Data Migration;Moxie Suite Features").
+// Returns the per-spa list of individual reason tags — COMBINES both the
+// Onboarding (delayed_reason) and Pre-launch (delayed_reason_pre_launch)
+// multi-select fields, dedupes so the same tag set on both fields counts
+// once per spa, and trims whitespace.
 function spaDelayedReasons(c){
-  const raw = spaDelayedReason(c);
-  if(!raw) return [];
-  return String(raw).split(";").map(s => s.trim()).filter(Boolean);
+  const both = [c.delayed_reason, c.delayed_reason_pre_launch]
+    .filter(Boolean)
+    .map(s => String(s).split(";"))
+    .flat()
+    .map(s => s.trim())
+    .filter(Boolean);
+  // Dedupe (case-insensitive) — preserve the first occurrence's casing
+  const seen = new Map();
+  for(const t of both){
+    const k = t.toLowerCase();
+    if(!seen.has(k)) seen.set(k, t);
+  }
+  return [...seen.values()];
 }
 
 function renderLaunchChange(c){
