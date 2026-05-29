@@ -402,8 +402,10 @@ async function fetchHubSpotCompanies(token) {
     "days_to_close",
     "onboarding_manager",                   // OM owner id
     "provider_success_manager",             // PSM owner id (correct Moxie field name)
+    "migrations_manager",                   // Migrations Manager owner id
     "hubspot_owner_id",                     // generic fallback
-    "delayed_reason",                       // why an account is delayed
+    "delayed_reason",                       // Onboarding delay reasons (multi-select)
+    "delayed_reason___pre_launch",          // Pre-Launch delay reasons (multi-select, 3 underscores)
     "pre_onboarding_reason"                 // pre-onboarding / delayed-kickoff reason
   ];
 
@@ -521,9 +523,14 @@ async function fetchHubSpotCompanies(token) {
       // Legacy alias so existing UI/digest code keeps working
       practice_success_manager: p.provider_success_manager || null,
       practice_success_manager_name: null,
+      migrations_manager: p.migrations_manager || null,
+      migrations_manager_name: null,           // populated by resolveOwners
       monthly_revenue: null,                   // populated by enrichWithDealRevenue
       current_emr: null,                       // populated by enrichWithDealRevenue (deal.current_emr)
-      delayed_reason: p.delayed_reason || null,
+      // Delay reasons (both fields are multi-select; HubSpot returns
+      // semicolon-separated strings like "Data Migration;Moxie Suite Features")
+      delayed_reason: p.delayed_reason || null,                          // Onboarding
+      delayed_reason_pre_launch: p.delayed_reason___pre_launch || null,  // Pre-launch
       pre_onboarding_reason: p.pre_onboarding_reason || null,
       // Populated by fetchLifecycleStageHistory — when the company most recently
       // entered its current lifecycle stage. Used for "Days in Pre-launch".
@@ -800,6 +807,7 @@ async function resolveOwners(companies, token) {
   for (const c of companies) {
     if (c.onboarding_manager) ownerIds.add(String(c.onboarding_manager));
     if (c.provider_success_manager) ownerIds.add(String(c.provider_success_manager));
+    if (c.migrations_manager) ownerIds.add(String(c.migrations_manager));
   }
   if (!ownerIds.size) return {};
 
@@ -834,6 +842,11 @@ async function resolveOwners(companies, token) {
       // Legacy alias for existing UI/digest code
       c.practice_success_manager_name = o.name;
       c.practice_success_manager_email = o.email;
+    }
+    if (c.migrations_manager && ownerMap[String(c.migrations_manager)]) {
+      const o = ownerMap[String(c.migrations_manager)];
+      c.migrations_manager_name = o.name;
+      c.migrations_manager_email = o.email;
     }
   }
   return ownerMap;
