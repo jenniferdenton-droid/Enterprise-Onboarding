@@ -43,6 +43,19 @@
 
   .summary{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;padding:22px 32px;}
 
+  /* Delayed Reason breakdown — Home tab only, sits between KPIs and the row list */
+  .dr-section{padding:0 32px 18px;}
+  .dr-section.hidden{display:none;}
+  .dr-card{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--danger);border-radius:14px;padding:14px 20px;box-shadow:0 1px 4px rgba(79,7,81,0.06);}
+  .dr-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;gap:14px;}
+  .dr-title{font-family:'Playfair Display',serif;font-size:15px;font-weight:700;color:var(--text);}
+  .dr-title-icon{margin-right:6px;}
+  .dr-sub{font-size:11px;color:var(--muted);}
+  .dr-pills{display:flex;flex-wrap:wrap;gap:8px;}
+  .dr-pill{display:inline-flex;align-items:center;gap:8px;background:rgba(184,85,85,.08);border:1px solid rgba(184,85,85,.25);padding:6px 12px;border-radius:14px;font-size:12px;color:var(--text);}
+  .dr-pill strong{font-family:'Playfair Display',serif;color:var(--danger);font-size:15px;font-weight:700;}
+  .dr-empty{font-size:12px;color:var(--ok);font-style:italic;}
+
   /* Home banner — small note explaining what's in scope */
   .home-note{padding:12px 32px 0;font-size:12px;color:var(--muted);font-style:italic;display:flex;align-items:center;gap:8px;}
   .home-note .home-note-icon{color:var(--plum);font-style:normal;}
@@ -289,6 +302,17 @@
   </div>
   <div class="sc b"><div class="sc-lbl"><span class="has-tip" title="Average days_in_onboarding (from HubSpot Company property) across all Pre-launch + Onboarding spas. Each spa's individual value shows on its row.">Avg Days in Onboarding</span></div><div class="sc-val" id="s-avg" style="color:var(--gold)">—</div><div class="sc-sub" id="s-avg-sub">across pre-launch + onboarding</div></div>
   <div class="sc a"><div class="sc-lbl"><span class="has-tip" title="Total medspas in Pre-launch + Onboarding lifecycle stages (excludes Post-launch + Archived).">Active Accounts</span></div><div class="sc-val" id="s-total" style="color:var(--plum)">—</div><div class="sc-sub" id="s-total-sub">onboarding + pre-launch</div></div>
+</div>
+
+<!-- ── Delayed Reasons breakdown (Home tab only) ───────────── -->
+<div class="dr-section hidden" id="dr-section">
+  <div class="dr-card">
+    <div class="dr-head">
+      <div class="dr-title"><span class="dr-title-icon">⚠</span>Delayed Reasons</div>
+      <div class="dr-sub" id="dr-sub">—</div>
+    </div>
+    <div class="dr-pills" id="dr-pills"></div>
+  </div>
 </div>
 
 <!-- KPI drill-down popover — populated by kpiPop() -->
@@ -1131,6 +1155,24 @@ function toggle(id){
   document.getElementById("card-"+id).classList.toggle("open");
 }
 
+// Returns the right delayed-reason string for a spa based on its lifecycle stage.
+// Onboarding spas use delayed_reason; Pre-launch spas use delayed_reason_pre_launch.
+// For other stages we fall back to whichever is set.
+function spaDelayedReason(c){
+  const stage = (c.lifecyclestage || "").toLowerCase();
+  if(stage === "pre-launch") return c.delayed_reason_pre_launch || c.delayed_reason || null;
+  if(stage === "onboarding") return c.delayed_reason || c.delayed_reason_pre_launch || null;
+  return c.delayed_reason_pre_launch || c.delayed_reason || null;
+}
+
+// Returns the per-spa list of individual reason tags (HubSpot multi-select returns
+// semicolon-separated values like "Data Migration;Moxie Suite Features").
+function spaDelayedReasons(c){
+  const raw = spaDelayedReason(c);
+  if(!raw) return [];
+  return String(raw).split(";").map(s => s.trim()).filter(Boolean);
+}
+
 function renderLaunchChange(c){
   // Shows whether the target launch date was moved, and which direction.
   // Format: "Pushed back / from <PREV> / to <NEW>" — readers were
@@ -1400,7 +1442,10 @@ function render(){
                   : `<button onclick="event.stopPropagation();chOpenModal('${c.hs_object_id}','${escapeJs(display)}')" title="Set up Slack channel" style="font-size:10px;font-weight:600;color:var(--danger);background:rgba(184,85,85,0.08);border:1px solid rgba(184,85,85,0.25);padding:1px 7px;border-radius:10px;cursor:pointer;font-family:'DM Sans',sans-serif;">＋ Channel</button>`
                 }
               </div>
-              ${c.delayed_reason?`<div title="${escapeHtml(c.delayed_reason)}" style="font-size:10px;color:var(--danger);background:rgba(184,85,85,.08);border:1px solid rgba(184,85,85,.2);padding:2px 7px;border-radius:4px;margin-top:4px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><strong>⚠ Delayed:</strong> ${escapeHtml(c.delayed_reason)}</div>`:''}
+              ${(() => {
+                const r = spaDelayedReason(c);
+                return r ? `<div title="${escapeHtml(r)}" style="font-size:10px;color:var(--danger);background:rgba(184,85,85,.08);border:1px solid rgba(184,85,85,.2);padding:2px 7px;border-radius:4px;margin-top:4px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><strong>⚠ Delayed:</strong> ${escapeHtml(r)}</div>` : '';
+              })()}
             </div>
           </div>
         </div>
@@ -1433,12 +1478,16 @@ function render(){
             <div><div class="di-lbl">Initial Target</div><div class="di-val" style="color:var(--muted)">${fDate(c.initial_target_launch_date)}</div></div>
             <div><div class="di-lbl">Onboarding Manager</div><div class="di-val">${own?escapeHtml(own.name):"—"}</div></div>
             <div><div class="di-lbl">Practice Success Manager</div><div class="di-val">${psmName?escapeHtml(psmName):"—"}</div></div>
+            <div><div class="di-lbl">Migrations Manager</div><div class="di-val">${c.migrations_manager_name?escapeHtml(c.migrations_manager_name):"—"}</div></div>
             ${c.city?`<div><div class="di-lbl">Location</div><div class="di-val">${c.city}${stateStr?', '+stateStr:''}</div></div>`:''}
             <div><div class="di-lbl">Monthly Revenue (L3M)</div><div class="di-val" style="color:${rev?'var(--ok)':'var(--muted)'};${rev?'':'font-style:italic;'}">${rev||'TBD'}</div></div>
             <div><div class="di-lbl" title="EMR pulled from Deal.current_emr">Current EMR</div><div class="di-val" style="color:${c.current_emr?'var(--text)':'var(--muted)'};${c.current_emr?'':'font-style:italic;'}">${c.current_emr?escapeHtml(c.current_emr):'TBD'}</div></div>
             ${c.days_to_close?`<div><div class="di-lbl">Days to Close</div><div class="di-val">${c.days_to_close}d</div></div>`:''}
           </div>
-          ${c.delayed_reason?`<div style="margin-top:12px;padding:10px 12px;background:rgba(184,85,85,.06);border-left:3px solid var(--danger);border-radius:4px;"><div class="di-lbl" style="color:var(--danger);">⚠ Delayed Reason</div><div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.5;">${escapeHtml(c.delayed_reason)}</div></div>`:''}
+          ${(() => {
+            const r = spaDelayedReason(c);
+            return r ? `<div style="margin-top:12px;padding:10px 12px;background:rgba(184,85,85,.06);border-left:3px solid var(--danger);border-radius:4px;"><div class="di-lbl" style="color:var(--danger);">⚠ Delayed Reason (${stage==="pre-launch"?"Pre-launch":"Onboarding"})</div><div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.5;">${escapeHtml(r)}</div></div>` : '';
+          })()}
           ${c.kickoff_date&&ld?`
           <div class="tl-wrap">
             <div class="tl-hdr">
@@ -1518,19 +1567,27 @@ function summary(){
   // 2) Currently delayed (status contains "delayed" OR has a delayed_reason)
   const delayed = scoped.filter(c => {
     const eff = (c.moxie_onboarding_status_override || c.moxie_onboarding_status || "").toLowerCase();
-    return eff.includes("delayed") || eff.includes("on hold") || eff.includes("at risk") || !!c.delayed_reason;
+    return eff.includes("delayed") || eff.includes("on hold") || eff.includes("at risk")
+      || !!c.delayed_reason || !!c.delayed_reason_pre_launch;
   });
-  // Top 2 delayed reasons (counted)
+
+  // Aggregate reason counts across all delayed spas. Reasons are multi-select
+  // (semicolon-separated) — each individual tag is counted separately so a
+  // spa with "Data Migration;Moxie Suite Features" feeds both buckets.
   const reasonCounts = {};
   for(const c of delayed){
-    const r = (c.delayed_reason || "Status: delayed").trim();
-    const key = r.length > 32 ? r.slice(0,32)+"…" : r;
-    reasonCounts[key] = (reasonCounts[key] || 0) + 1;
+    const tags = spaDelayedReasons(c);
+    if(!tags.length){ reasonCounts["Status: delayed"] = (reasonCounts["Status: delayed"] || 0) + 1; continue; }
+    for(const t of tags){
+      reasonCounts[t] = (reasonCounts[t] || 0) + 1;
+    }
   }
-  const topReasons = Object.entries(reasonCounts).sort((a,b)=>b[1]-a[1]).slice(0,2);
-  const reasonSub = topReasons.length
-    ? topReasons.map(([r,n]) => `${n}× ${r}`).join(" · ")
+  const sortedReasons = Object.entries(reasonCounts).sort((a,b) => b[1] - a[1]);
+  const reasonSub = sortedReasons.length
+    ? sortedReasons.slice(0,2).map(([r,n]) => `${n}× ${r}`).join(" · ")
     : "no delays";
+  // Stash for popover
+  KPI_REASON_BREAKDOWN = sortedReasons;
 
   // 3) Unknown launch dates
   const unknown = scoped.filter(c => {
@@ -1578,13 +1635,44 @@ function summary(){
     else if(curLifecycle === "archived") totalSub.textContent = "archived";
   }
 
+  // Render the inline Delayed Reasons section (Home tab only)
+  renderDelayedReasons(delayed.length, sortedReasons);
+
   updateLifecycleCounts();
+}
+
+// Renders the always-visible Delayed Reasons breakdown on the Home tab.
+// Each reason category shows as a pill with its spa count (e.g. "5 Data Migration").
+// Multi-reason spas are counted once per reason — same logic as the KPI sub-line
+// and the Delayed popover so the numbers line up everywhere.
+function renderDelayedReasons(delayedCount, reasonsSorted){
+  const wrap = document.getElementById("dr-section");
+  if(!wrap) return;
+  if(curLifecycle !== "home"){
+    wrap.classList.add("hidden");
+    return;
+  }
+  wrap.classList.remove("hidden");
+
+  const sub = document.getElementById("dr-sub");
+  const pills = document.getElementById("dr-pills");
+  if(!delayedCount){
+    sub.textContent = "no delays this week";
+    pills.innerHTML = `<div class="dr-empty">✓ No active delayed reasons.</div>`;
+    return;
+  }
+  const total = reasonsSorted.reduce((a, [,n]) => a + n, 0);
+  sub.textContent = `${delayedCount} spa${delayedCount===1?"":"s"} delayed · ${reasonsSorted.length} unique reason${reasonsSorted.length===1?"":"s"} · ${total} tag${total===1?"":"s"} total`;
+  pills.innerHTML = reasonsSorted
+    .map(([r, n]) => `<div class="dr-pill"><strong>${n}</strong>${escapeHtml(r)}</div>`)
+    .join("");
 }
 
 // ── KPI drill-down popover ───────────────────────────────
 // Holds the latest filtered spa lists keyed by KPI type so kpiPop() can
 // render them without recomputing.
 let KPI_SPA_LISTS = { delayed: [], unknown: [], pushedBack: [], movedUp: [] };
+let KPI_REASON_BREAKDOWN = []; // [["Data Migration", 5], ["Moxie Suite Features", 3], ...]
 
 function kpiPop(kind, cardEl){
   const pop = document.getElementById("kpi-pop");
@@ -1635,9 +1723,26 @@ function kpiPop(kind, cardEl){
   } else if(kind === "delayed"){
     const list = KPI_SPA_LISTS.delayed || [];
     title = `⚠ Delayed Spas (${list.length})`;
-    body = list.length
-      ? list.map(c => fmtSpa(c, c.delayed_reason ? `Reason: ${c.delayed_reason}` : (c.moxie_onboarding_status_override || c.moxie_onboarding_status || ""))).join("")
+    // Top section: reason-count breakdown so stakeholders see WHY the delays
+    // are happening at a glance (e.g. "Data Migration × 5, Moxie Suite Features × 3").
+    const breakdown = KPI_REASON_BREAKDOWN || [];
+    const breakdownHtml = breakdown.length
+      ? `<div class="kpi-pop-section">
+          <div class="kpi-pop-section-lbl" style="color:var(--danger);">Why are they delayed? (count per reason)</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${breakdown.map(([r,n]) => `<span style="font-size:11px;color:var(--text);background:rgba(184,85,85,.08);border:1px solid rgba(184,85,85,.25);padding:4px 9px;border-radius:10px;"><strong style="color:var(--danger);margin-right:4px;">${n}</strong>${escapeHtml(r)}</span>`).join("")}
+          </div>
+        </div>`
+      : "";
+    const spaListHtml = list.length
+      ? `<div class="kpi-pop-section"><div class="kpi-pop-section-lbl">Affected spas</div>${list.map(c => {
+          const r = spaDelayedReason(c);
+          const stage = (c.lifecyclestage || "").toLowerCase();
+          const stageLbl = stage === "pre-launch" ? "Pre-launch" : stage === "onboarding" ? "Onboarding" : stage;
+          return fmtSpa(c, r ? `${stageLbl} · ${r}` : stageLbl);
+        }).join("")}</div>`
       : `<div class="kpi-pop-empty">No delayed spas — clean week.</div>`;
+    body = breakdownHtml + spaListHtml;
   } else if(kind === "unknown"){
     const list = KPI_SPA_LISTS.unknown || [];
     title = `? Unknown Launch Date (${list.length})`;
